@@ -4,7 +4,7 @@
 
 ## 开始工作前
 
-- 先读取 `docs/PRD.md`、`docs/ARCHITECTURE.md`、`docs/DATA_MODEL_AND_API.md` 和 `docs/STATUS.md`。
+- 先读取 `docs/PRD.md`、`docs/ARCHITECTURE.md`、`docs/DATA_MODEL_AND_API.md`、`docs/UI_SPEC.md` 和 `docs/STATUS.md`。
 - 如果这些文档为空或内容不足，先说明缺口，不要擅自补充产品目标。
 - 不修改工作区之外的记忆文件，除非用户明确要求。
 

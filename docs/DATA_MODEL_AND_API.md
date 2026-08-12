@@ -26,6 +26,7 @@
 | 项目分类 | 文件夹结构 | `todo`、`ongoing`、`archive` |
 | 学习库路径 | 本地 JSON 配置 | 只由后端读取和修改 |
 | 上次打开的文章 | 本地 JSON 配置 | 保存相对于学习库的路径 |
+| 自动续读位置 | 本地 JSON 配置 | 保存上次打开文章的滚动比例，不对用户显示进度 |
 | 当前输入框内容 | React 页面内存 | 未提交前不写入文件 |
 | AI 生成结果 | 下一篇 Markdown | 成功生成后直接写入项目文件夹 |
 
@@ -70,14 +71,22 @@ type CategoryName = 'todo' | 'ongoing' | 'archive'
 ### 4.2 应用配置
 
 ```ts
+interface LastReadingPosition {
+  articlePath: string
+  scrollRatio: number
+}
+
 interface AppConfig {
   libraryPath: string | null
   lastOpenedArticlePath: string | null
+  lastReadingPosition: LastReadingPosition | null
 }
 ```
 
 - `libraryPath`：学习库绝对路径。
 - `lastOpenedArticlePath`：相对于学习库的文章路径。
+- `lastReadingPosition.articlePath`：自动续读所属文章的相对路径，应与最近打开文章一致。
+- `lastReadingPosition.scrollRatio`：文章可滚动范围中的位置，取值在 `0` 到 `1` 之间；只用于恢复阅读位置，不显示为百分比进度。
 - 未选择学习库或没有打开过文章时使用 `null`。
 - 包含绝对路径的本地配置文件不能提交到 GitHub。
 
@@ -187,11 +196,11 @@ interface ApiErrorResponse {
 
 | 用户动作 | 方法 | 路径 | 后端职责 |
 | --- | --- | --- | --- |
-| 查看当前配置 | `GET` | `/api/config` | 返回学习库和最近文章配置 |
+| 查看当前配置 | `GET` | `/api/config` | 返回学习库、最近文章和自动续读位置 |
 | 设置学习库 | `PUT` | `/api/config/library` | 校验并保存学习库路径 |
 | 获取学习库列表 | `GET` | `/api/library` | 扫描三个分类及项目文章 |
 | 打开一篇文章 | `GET` | `/api/article?path=...` | 读取指定 Markdown |
-| 保存最近打开文章 | `PUT` | `/api/config/last-opened` | 更新本地配置 |
+| 保存最近打开文章和续读位置 | `PUT` | `/api/config/last-opened` | 更新本地配置 |
 | 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、创建文章 |
 
 ## 6. API 详细约定
@@ -207,11 +216,15 @@ GET /api/config
 ```json
 {
   "libraryPath": "D:\\MyStudyLibrary",
-  "lastOpenedArticlePath": "ongoing/Web开发/01.md"
+  "lastOpenedArticlePath": "ongoing/Web开发/01.md",
+  "lastReadingPosition": {
+    "articlePath": "ongoing/Web开发/01.md",
+    "scrollRatio": 0.42
+  }
 }
 ```
 
-前端使用这个接口判断是否已经选择学习库，以及启动后应优先打开哪篇文章。
+前端使用这个接口判断是否已经选择学习库、启动后应优先打开哪篇文章，以及渲染后是否恢复自动续读位置。
 
 ### 6.2 设置学习库
 
@@ -299,7 +312,7 @@ GET /api/article?path=ongoing%2FWeb开发%2F01.md
 
 后端必须先校验路径仍在当前学习库内，再读取文件。
 
-### 6.5 保存最近打开的文章
+### 6.5 保存最近打开的文章和自动续读位置
 
 ```http
 PUT /api/config/last-opened
@@ -310,7 +323,8 @@ Content-Type: application/json
 
 ```json
 {
-  "articlePath": "ongoing/Web开发/01.md"
+  "articlePath": "ongoing/Web开发/01.md",
+  "scrollRatio": 0.42
 }
 ```
 
@@ -318,11 +332,17 @@ Content-Type: application/json
 
 ```json
 {
-  "lastOpenedArticlePath": "ongoing/Web开发/01.md"
+  "lastOpenedArticlePath": "ongoing/Web开发/01.md",
+  "lastReadingPosition": {
+    "articlePath": "ongoing/Web开发/01.md",
+    "scrollRatio": 0.42
+  }
 }
 ```
 
-该接口只记录最近打开位置，不记录已完成状态或阅读时长。
+前端在用户停止滚动一小段时间后保存一次，避免随着每个像素滚动频繁写入配置文件。打开文章时，前端先完成 Markdown 渲染，再按 `scrollRatio` 恢复位置。
+
+该接口只记录最近打开文章的自动续读位置，不记录已完成状态、阅读时长或面向用户显示的阅读进度。
 
 ### 6.6 提交反馈并生成下一篇
 
@@ -443,6 +463,8 @@ P0 不定义以下数据：
 - 多设备同步记录；
 - 数据库 ID 和数据库表。
 
+P0 可以保存一个最近打开文章的自动续读位置；它只是本机恢复阅读所需的 UI 偏好，不构成阅读进度、阅读统计或跨设备同步记录。
+
 当出现阅读统计、多设备同步、冲突处理或大量查询需求时，再重新评估是否引入数据库。
 
 ## 10. 尚未确认
@@ -452,4 +474,3 @@ P0 不定义以下数据：
 - 遇到不规范文章文件名时如何计算下一篇编号。
 - 学习库使用系统文件夹选择器还是先手动填写路径。
 - 反馈在 Markdown 中保存 `submissionId` 的具体标记格式。
-
