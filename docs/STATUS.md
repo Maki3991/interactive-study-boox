@@ -2,13 +2,27 @@
 
 > 更新时间：2026-08-13
 >
-> 当前阶段：P0 电脑端 Web Prototype——已完成真实学习库扫描与单篇 Markdown 读取，下一步接入前端真实数据
+> 当前阶段：P0 电脑端 Web Prototype——后端只读接口已验证，下一步将静态前端接入真实本地 Markdown 数据
 
 ## 1. 当前结论
 
 项目目前已经完成了“要做什么、第一版不做什么、采用什么技术栈、数据如何流动、前后端通过哪些 API 沟通”的初步设计。
 
 React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器原型，并已根据首轮浏览器体验反馈完成必要修订。当前界面仍使用假学习库、假文章和浏览器本地存储演示交互；后端已能递归扫描开发期的真实测试学习库，并可安全读取一篇 Markdown 文章，但尚未接入前端、保存反馈或调用 AI。
+
+当前已经完成的最小“读取”链停在后端返回数据这一步：
+
+```text
+测试浏览器请求 GET /api/library
+  → Express 扫描 sample-library/
+  → 返回真实文件夹树与 Markdown 文件列表
+
+测试浏览器请求 GET /api/article?path=...
+  → Express 校验路径不能越出学习库
+  → 读取指定 Markdown 正文并返回
+```
+
+下一阶段的目标是让 React 前端替换假数据来源，实际调用这两个接口并显示结果；尚未进入反馈保存或 AI 生成。
 
 ## 2. 已完成
 
@@ -38,7 +52,7 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 - 包管理器：npm。
 - 数据保存：本地 Markdown 文件与简单 JSON 配置。
 - 数据库：P0 不使用数据库。
-- 已形成 P0 数据模型和 API 草案，共规划 6 个接口。
+- 已形成 P0 数据模型和 API 草案，共规划 6 个业务接口。
 - 已确定第一条开发功能链先只实现“读取学习库并打开 Markdown 文章”，暂不接入反馈和 AI。
 
 ### 开发环境与代码
@@ -56,6 +70,14 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 - 已实现并验证 `GET /api/article?path=...`：读取指定 Markdown 的原始正文和摘要信息；请求路径会被规范化并校验在学习库边界内。真实文章 `archived/阿德勒心理学/01_目的论.md` 已成功读取；越界的 `../outside.md` 返回 `403`。
 - 已运行 `npx.cmd tsc --noEmit`，后端 TypeScript 检查通过。
 
+当前后端入口 `server/src/index.ts` 的职责边界：
+
+- 启动 Express 本地服务；
+- 提供开发检查接口 `GET /api/health`；
+- 提供真实目录树接口 `GET /api/library`；
+- 提供单篇 Markdown 读取接口 `GET /api/article`；
+- 在同一文件中暂存目录扫描、路径安全校验和文章摘要等后端内部函数。后续函数增多时再按职责拆分文件。
+
 ### 项目文档
 
 - `docs/PRD.md`：P0 产品需求初稿。
@@ -67,7 +89,7 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 ## 3. 尚未完成
 
 - 尚未完成电脑宽屏与窄屏交互的完整验收；已根据首轮布局体验反馈完成必要修订。
-- 除 `GET /api/health` 与 `GET /api/library` 外，其余 API 仍处于设计状态。
+- 除开发检查接口 `GET /api/health`、读取接口 `GET /api/library` 与 `GET /api/article` 外，其余业务 API 仍处于设计状态。
 - 测试学习库路径暂时固定为项目根目录的 `sample-library/`；尚未实现用户选择、保存和更换学习库路径。
 - 尚未将前端的 `mockLibrary.ts` 假数据替换为真实 API 数据。
 - 尚未决定开发环境中的跨端口通信方案（Vite 开发代理或后端 CORS 设置）。
@@ -104,9 +126,16 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 
 暂定实现顺序：
 
-1. 确定开发环境中前端 `5173` 与后端 `3001` 的通信方式。
-2. 前端调用真实 API，以真实 Markdown 替换 `mockLibrary.ts` 假数据；Markdown 渲染库的具体选择在此步确认。
-3. 验证真实阅读后，再开发反馈保存与 AI 生成。
+1. 在 `client/vite.config.ts` 配置开发期转发规则（暂定优先 Vite 开发代理），让前端的 `/api/...` 请求能到本机 `3001` 后端。
+2. 新建 `client/src/api.ts`，集中定义 `loadLibrary()` 与 `loadArticle(path)` 两个前端请求函数。
+3. 修改 `client/src/types.ts`，以真实“文件夹节点 / Markdown 文件节点 / 文章正文”数据类型替换当前以 `Mock` 命名的假数据类型。
+4. 修改 `client/src/App.tsx`：页面启动时加载文件树；用户点击文章时加载正文；维护加载中与读取失败状态。
+5. 修改 `client/src/components/LibraryTree.tsx`，使其能渲染任意深度的真实文件夹树；点击文件夹只在前端展开或收起，不重复请求后端。
+6. 修改 `client/src/components/ReaderPane.tsx`，使其接收并显示后端返回的原始 Markdown。具体 Markdown 渲染库尚待确认。
+7. 暂时停用 `client/src/components/FeedbackPanel.tsx` 中伪造的“生成下一篇”成功状态；真实反馈提交功能要等后端写入与 AI 生成功能完成后再接入。
+8. 验证真实阅读后，再开发反馈保存与 AI 生成。
+
+`client/src/mockLibrary.ts` 在迁移期间暂时保留，作为可回退的静态原型数据；真实 API 接入并验证完成后再决定是否删除。
 
 ## 6. 待确认但不阻塞当前读取功能链
 
