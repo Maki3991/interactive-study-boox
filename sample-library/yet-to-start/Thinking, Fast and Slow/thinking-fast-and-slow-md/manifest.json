@@ -1,0 +1,362 @@
+﻿[
+    {
+        "Number":  0,
+        "Kind":  "intro",
+        "Part":  0,
+        "Title":  "Introduction",
+        "File":  "00-introduction.md",
+        "StartLine":  144,
+        "EndLine":  270
+    },
+    {
+        "Number":  1,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "The Characters of the Story",
+        "File":  "part-1-two-systems/01-the-characters-of-the-story.md",
+        "StartLine":  271,
+        "EndLine":  470
+    },
+    {
+        "Number":  2,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "Attention and Effort",
+        "File":  "part-1-two-systems/02-attention-and-effort.md",
+        "StartLine":  471,
+        "EndLine":  552
+    },
+    {
+        "Number":  3,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "The Lazy Controller",
+        "File":  "part-1-two-systems/03-the-lazy-controller.md",
+        "StartLine":  553,
+        "EndLine":  712
+    },
+    {
+        "Number":  4,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "The Associative Machine",
+        "File":  "part-1-two-systems/04-the-associative-machine.md",
+        "StartLine":  713,
+        "EndLine":  815
+    },
+    {
+        "Number":  5,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "Cognitive Ease",
+        "File":  "part-1-two-systems/05-cognitive-ease.md",
+        "StartLine":  816,
+        "EndLine":  1022
+    },
+    {
+        "Number":  6,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "Norms, Surprises, and Causes",
+        "File":  "part-1-two-systems/06-norms-surprises-and-causes.md",
+        "StartLine":  1023,
+        "EndLine":  1107
+    },
+    {
+        "Number":  7,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "A Machine for Jumping to Conclusions",
+        "File":  "part-1-two-systems/07-a-machine-for-jumping-to-conclusions.md",
+        "StartLine":  1108,
+        "EndLine":  1236
+    },
+    {
+        "Number":  8,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "How Judgments Happen",
+        "File":  "part-1-two-systems/08-how-judgments-happen.md",
+        "StartLine":  1237,
+        "EndLine":  1379
+    },
+    {
+        "Number":  9,
+        "Kind":  "chapter",
+        "Part":  1,
+        "Title":  "Answering an Easier Question",
+        "File":  "part-1-two-systems/09-answering-an-easier-question.md",
+        "StartLine":  1380,
+        "EndLine":  1574
+    },
+    {
+        "Number":  10,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "The Law of Small Numbers",
+        "File":  "part-2-heuristics-and-biases/10-the-law-of-small-numbers.md",
+        "StartLine":  1575,
+        "EndLine":  1712
+    },
+    {
+        "Number":  11,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Anchors",
+        "File":  "part-2-heuristics-and-biases/11-anchors.md",
+        "StartLine":  1713,
+        "EndLine":  1868
+    },
+    {
+        "Number":  12,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "The Science of Availability",
+        "File":  "part-2-heuristics-and-biases/12-the-science-of-availability.md",
+        "StartLine":  1869,
+        "EndLine":  2000
+    },
+    {
+        "Number":  13,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Availability, Emotion, and Risk",
+        "File":  "part-2-heuristics-and-biases/13-availability-emotion-and-risk.md",
+        "StartLine":  2001,
+        "EndLine":  2097
+    },
+    {
+        "Number":  14,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Tom W’s Specialty",
+        "File":  "part-2-heuristics-and-biases/14-tom-ws-specialty.md",
+        "StartLine":  2098,
+        "EndLine":  2277
+    },
+    {
+        "Number":  15,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Linda: Less is More",
+        "File":  "part-2-heuristics-and-biases/15-linda-less-is-more.md",
+        "StartLine":  2278,
+        "EndLine":  2479
+    },
+    {
+        "Number":  16,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Causes Trump Statistics",
+        "File":  "part-2-heuristics-and-biases/16-causes-trump-statistics.md",
+        "StartLine":  2480,
+        "EndLine":  2615
+    },
+    {
+        "Number":  17,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Regression to the Mean",
+        "File":  "part-2-heuristics-and-biases/17-regression-to-the-mean.md",
+        "StartLine":  2616,
+        "EndLine":  2792
+    },
+    {
+        "Number":  18,
+        "Kind":  "chapter",
+        "Part":  2,
+        "Title":  "Taming Intuitive Predictions",
+        "File":  "part-2-heuristics-and-biases/18-taming-intuitive-predictions.md",
+        "StartLine":  2793,
+        "EndLine":  2991
+    },
+    {
+        "Number":  19,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "The Illusion of Understanding",
+        "File":  "part-3-overconfidence/19-the-illusion-of-understanding.md",
+        "StartLine":  2992,
+        "EndLine":  3098
+    },
+    {
+        "Number":  20,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "The Illusion of Validity",
+        "File":  "part-3-overconfidence/20-the-illusion-of-validity.md",
+        "StartLine":  3099,
+        "EndLine":  3246
+    },
+    {
+        "Number":  21,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "Intuitions vs. Formulas",
+        "File":  "part-3-overconfidence/21-intuitions-vs-formulas.md",
+        "StartLine":  3247,
+        "EndLine":  3368
+    },
+    {
+        "Number":  22,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "Expert Intuition: When Can We Trust It?",
+        "File":  "part-3-overconfidence/22-expert-intuition-when-can-we-trust-it.md",
+        "StartLine":  3369,
+        "EndLine":  3523
+    },
+    {
+        "Number":  23,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "The Outside View",
+        "File":  "part-3-overconfidence/23-the-outside-view.md",
+        "StartLine":  3524,
+        "EndLine":  3673
+    },
+    {
+        "Number":  24,
+        "Kind":  "chapter",
+        "Part":  3,
+        "Title":  "The Engine of Capitalism",
+        "File":  "part-3-overconfidence/24-the-engine-of-capitalism.md",
+        "StartLine":  3674,
+        "EndLine":  3813
+    },
+    {
+        "Number":  25,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Bernoulli’s Errors",
+        "File":  "part-4-choices/25-bernoullis-errors.md",
+        "StartLine":  3814,
+        "EndLine":  3963
+    },
+    {
+        "Number":  26,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Prospect Theory",
+        "File":  "part-4-choices/26-prospect-theory.md",
+        "StartLine":  3964,
+        "EndLine":  4154
+    },
+    {
+        "Number":  27,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "The Endowment Effect",
+        "File":  "part-4-choices/27-the-endowment-effect.md",
+        "StartLine":  4155,
+        "EndLine":  4293
+    },
+    {
+        "Number":  28,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Bad Events",
+        "File":  "part-4-choices/28-bad-events.md",
+        "StartLine":  4294,
+        "EndLine":  4422
+    },
+    {
+        "Number":  29,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "The Fourfold Pattern",
+        "File":  "part-4-choices/29-the-fourfold-pattern.md",
+        "StartLine":  4423,
+        "EndLine":  4610
+    },
+    {
+        "Number":  30,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Rare Events",
+        "File":  "part-4-choices/30-rare-events.md",
+        "StartLine":  4611,
+        "EndLine":  4805
+    },
+    {
+        "Number":  31,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Risk Policies",
+        "File":  "part-4-choices/31-risk-policies.md",
+        "StartLine":  4806,
+        "EndLine":  4947
+    },
+    {
+        "Number":  32,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Keeping Score",
+        "File":  "part-4-choices/32-keeping-score.md",
+        "StartLine":  4948,
+        "EndLine":  5097
+    },
+    {
+        "Number":  33,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Reversals",
+        "File":  "part-4-choices/33-reversals.md",
+        "StartLine":  5098,
+        "EndLine":  5263
+    },
+    {
+        "Number":  34,
+        "Kind":  "chapter",
+        "Part":  4,
+        "Title":  "Frames and Reality",
+        "File":  "part-4-choices/34-frames-and-reality.md",
+        "StartLine":  5264,
+        "EndLine":  5469
+    },
+    {
+        "Number":  35,
+        "Kind":  "chapter",
+        "Part":  5,
+        "Title":  "Two Selves",
+        "File":  "part-5-two-selves/35-two-selves.md",
+        "StartLine":  5470,
+        "EndLine":  5588
+    },
+    {
+        "Number":  36,
+        "Kind":  "chapter",
+        "Part":  5,
+        "Title":  "Life as a Story",
+        "File":  "part-5-two-selves/36-life-as-a-story.md",
+        "StartLine":  5589,
+        "EndLine":  5658
+    },
+    {
+        "Number":  37,
+        "Kind":  "chapter",
+        "Part":  5,
+        "Title":  "Experienced Well-Being",
+        "File":  "part-5-two-selves/37-experienced-well-being.md",
+        "StartLine":  5659,
+        "EndLine":  5750
+    },
+    {
+        "Number":  38,
+        "Kind":  "chapter",
+        "Part":  5,
+        "Title":  "Thinking About Life",
+        "File":  "part-5-two-selves/38-thinking-about-life.md",
+        "StartLine":  5751,
+        "EndLine":  5864
+    },
+    {
+        "Number":  39,
+        "Kind":  "conclusion",
+        "Part":  6,
+        "Title":  "Conclusions",
+        "File":  "39-conclusions.md",
+        "StartLine":  5865,
+        "EndLine":  5950
+    }
+]
