@@ -35,3 +35,34 @@ export interface ReadingPosition {
   articlePath: string
   scrollRatio: number
 }
+
+// 以下类型对应后端真实读取接口的返回数据。当前假数据类型先保留，
+// 等页面完成迁移并验证后，再决定是否删除它们。
+export type ArticleKind = 'plan' | 'lesson' | 'other'
+
+export type LibraryEntry = FolderNode | MarkdownFileNode
+
+export interface FolderNode {
+  type: 'folder'
+  name: string
+  relativePath: string
+  children: LibraryEntry[]
+}
+
+export interface MarkdownFileNode {
+  type: 'article'
+  fileName: string
+  relativePath: string
+}
+
+export interface LibraryResponse {
+  entries: LibraryEntry[]
+}
+
+export interface ArticleContent {
+  fileName: string
+  title: string
+  relativePath: string
+  kind: ArticleKind
+  markdown: string
+}
