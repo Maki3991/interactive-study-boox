@@ -69,6 +69,9 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 - 已实现并验证 `GET /api/library`：递归扫描 `sample-library/`，返回真实文件夹树和 `.md` 文件，忽略 `.txt`、`.json` 等非 Markdown 普通文件；响应已确认包含 `archived`、`on-going`、`yet-to-start` 三个顶层文件夹。
 - 已实现并验证 `GET /api/article?path=...`：读取指定 Markdown 的原始正文和摘要信息；请求路径会被规范化并校验在学习库边界内。真实文章 `archived/阿德勒心理学/01_目的论.md` 已成功读取；越界的 `../outside.md` 返回 `403`。
 - 已运行 `npx.cmd tsc --noEmit`，后端 TypeScript 检查通过。
+- 已新建 `client/src/api.ts`：定义前端读取函数 `loadLibrary()` 与 `loadArticle(relativePath)`，分别对应两个已实现的后端读取接口；公共请求、成功 JSON 解析和失败信息提取统一由内部 `requestJson()` 处理。
+- 已在 `client/src/types.ts` 增加真实接口的数据模型：文件夹节点、Markdown 文件节点、学习库响应与文章正文；当前的 `Mock*` 类型和假数据仍保留，尚未迁移页面。
+- 在新增前端 API 文件后，已运行 `npm.cmd run build` 与 `npm.cmd run lint`，均通过。
 
 当前后端入口 `server/src/index.ts` 的职责边界：
 
@@ -91,7 +94,7 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 - 尚未完成电脑宽屏与窄屏交互的完整验收；已根据首轮布局体验反馈完成必要修订。
 - 除开发检查接口 `GET /api/health`、读取接口 `GET /api/library` 与 `GET /api/article` 外，其余业务 API 仍处于设计状态。
 - 测试学习库路径暂时固定为项目根目录的 `sample-library/`；尚未实现用户选择、保存和更换学习库路径。
-- 尚未将前端的 `mockLibrary.ts` 假数据替换为真实 API 数据。
+- `client/src/api.ts` 已准备好，但尚未被 `App.tsx` 调用；页面仍使用 `mockLibrary.ts` 假数据。
 - 尚未决定开发环境中的跨端口通信方案（Vite 开发代理或后端 CORS 设置）。
 - 尚未安装和接入 Markdown 渲染库。
 - 尚未实现反馈追加、重复提交保护和下一篇文件创建。
@@ -127,13 +130,11 @@ React 前端已从 Vite 默认页面替换为可点击的静态学习阅读器�
 暂定实现顺序：
 
 1. 在 `client/vite.config.ts` 配置开发期转发规则（暂定优先 Vite 开发代理），让前端的 `/api/...` 请求能到本机 `3001` 后端。
-2. 新建 `client/src/api.ts`，集中定义 `loadLibrary()` 与 `loadArticle(path)` 两个前端请求函数。
-3. 修改 `client/src/types.ts`，以真实“文件夹节点 / Markdown 文件节点 / 文章正文”数据类型替换当前以 `Mock` 命名的假数据类型。
-4. 修改 `client/src/App.tsx`：页面启动时加载文件树；用户点击文章时加载正文；维护加载中与读取失败状态。
-5. 修改 `client/src/components/LibraryTree.tsx`，使其能渲染任意深度的真实文件夹树；点击文件夹只在前端展开或收起，不重复请求后端。
-6. 修改 `client/src/components/ReaderPane.tsx`，使其接收并显示后端返回的原始 Markdown。具体 Markdown 渲染库尚待确认。
-7. 暂时停用 `client/src/components/FeedbackPanel.tsx` 中伪造的“生成下一篇”成功状态；真实反馈提交功能要等后端写入与 AI 生成功能完成后再接入。
-8. 验证真实阅读后，再开发反馈保存与 AI 生成。
+2. 修改 `client/src/App.tsx`：页面启动时调用 `loadLibrary()`；用户点击文章时调用 `loadArticle(path)`；维护加载中与读取失败状态。
+3. 修改 `client/src/components/LibraryTree.tsx`，使其能渲染任意深度的真实文件夹树；点击文件夹只在前端展开或收起，不重复请求后端。
+4. 修改 `client/src/components/ReaderPane.tsx`，使其接收并显示后端返回的原始 Markdown。具体 Markdown 渲染库尚待确认。
+5. 暂时停用 `client/src/components/FeedbackPanel.tsx` 中伪造的“生成下一篇”成功状态；真实反馈提交功能要等后端写入与 AI 生成功能完成后再接入。
+6. 验证真实阅读后，再开发反馈保存与 AI 生成。
 
 `client/src/mockLibrary.ts` 在迁移期间暂时保留，作为可回退的静态原型数据；真实 API 接入并验证完成后再决定是否删除。
 
