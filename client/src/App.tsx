@@ -256,7 +256,16 @@ function App() {
         />
       </main>
 
-      <section className="mobile-library-screen" aria-label="学习库页面">
+      {mobileView === 'library' && (
+        <button
+          className="mobile-library-dismiss-area"
+          type="button"
+          aria-label="关闭学习库，返回文章"
+          onClick={() => setMobileView('reader')}
+        />
+      )}
+
+      <aside className="mobile-library-drawer" aria-label="学习库抽屉">
         <header className="mobile-library-header">
           <button type="button" onClick={() => setMobileView('reader')}>
             ← 返回文章
@@ -271,7 +280,7 @@ function App() {
           onToggleNode={handleToggleNode}
           onOpenArticle={handleOpenArticle}
         />
-      </section>
+      </aside>
 
       <ReaderMenu
         open={readerMenuOpen}
