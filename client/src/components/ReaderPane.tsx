@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import Markdown from 'react-markdown'
 import type { ArticleContent } from '../types'
 import FeedbackPanel from './FeedbackPanel'
 
@@ -12,10 +13,33 @@ interface ReaderPaneProps {
   onFeedbackChange: (value: string) => void
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
+  onOpenArticle: (articlePath: string) => void | Promise<void>
 }
 
 function isNarrowScreen() {
   return window.matchMedia('(max-width: 900px)').matches
+}
+
+function resolveMarkdownArticlePath(href: string | undefined, currentArticlePath: string) {
+  if (!href || href.startsWith('#') || /^[a-z][a-z\d+.-]*:/i.test(href)) {
+    return null
+  }
+
+  const markdownPath = href.split('#', 1)[0].split('?', 1)[0]
+
+  if (!markdownPath.toLowerCase().endsWith('.md')) {
+    return null
+  }
+
+  const currentDirectory = currentArticlePath.slice(0, currentArticlePath.lastIndexOf('/') + 1)
+
+  try {
+    const resolvedUrl = new URL(markdownPath, `https://study-library.local/${currentDirectory}`)
+
+    return decodeURIComponent(resolvedUrl.pathname.replace(/^\//, ''))
+  } catch {
+    return null
+  }
 }
 
 function ReaderPane({
@@ -27,6 +51,7 @@ function ReaderPane({
   onFeedbackChange,
   onReadingPositionChange,
   onReaderMenuGesture,
+  onOpenArticle,
 }: ReaderPaneProps) {
   const readerScrollRef = useRef<HTMLDivElement>(null)
   const saveTimerRef = useRef<number | null>(null)
@@ -127,10 +152,38 @@ function ReaderPane({
         onPointerUp={handlePointerUp}
       >
         <article className="markdown-article">
-          <p className="markdown-source-notice">
-            当前显示的是后端读取到的原始 Markdown；阅读排版将在下一步接入。
-          </p>
-          <pre className="markdown-source">{article.markdown}</pre>
+          <Markdown
+            skipHtml
+            components={{
+              a({ href, children }) {
+                const linkedArticlePath = resolveMarkdownArticlePath(href, article.relativePath)
+
+                if (linkedArticlePath) {
+                  return (
+                    <button
+                      className="markdown-link"
+                      type="button"
+                      onClick={() => void onOpenArticle(linkedArticlePath)}
+                    >
+                      {children}
+                    </button>
+                  )
+                }
+
+                return (
+                  <a
+                    href={href}
+                    target={href?.startsWith('http') ? '_blank' : undefined}
+                    rel={href?.startsWith('http') ? 'noreferrer' : undefined}
+                  >
+                    {children}
+                  </a>
+                )
+              },
+            }}
+          >
+            {article.markdown}
+          </Markdown>
         </article>
 
         <FeedbackPanel
