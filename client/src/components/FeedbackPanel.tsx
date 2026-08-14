@@ -1,31 +1,16 @@
 import type { RefObject } from 'react'
 
-export type GenerationState = 'idle' | 'generating' | 'success' | 'failure'
-
 interface FeedbackPanelProps {
   feedback: string
   feedbackRef: RefObject<HTMLTextAreaElement | null>
-  generationState: GenerationState
-  nextArticleFileName?: string
   onFeedbackChange: (value: string) => void
-  onSubmit: () => void
-  onOpenNextArticle: () => void
-  onRetry: () => void
 }
 
 function FeedbackPanel({
   feedback,
   feedbackRef,
-  generationState,
-  nextArticleFileName,
   onFeedbackChange,
-  onSubmit,
-  onOpenNextArticle,
-  onRetry,
 }: FeedbackPanelProps) {
-  const isGenerating = generationState === 'generating'
-  const canSubmit = feedback.trim().length > 0 && !isGenerating
-
   return (
     <section className="feedback-panel" aria-labelledby="feedback-heading">
       <div className="feedback-divider" aria-hidden="true" />
@@ -40,34 +25,13 @@ function FeedbackPanel({
         onChange={(event) => onFeedbackChange(event.target.value)}
       />
 
-      <button
-        className="primary-button"
-        type="button"
-        disabled={!canSubmit}
-        onClick={onSubmit}
-      >
-        {isGenerating ? '正在保存反馈并生成下一篇……' : '提交并生成下一篇'}
+      <p className="feedback-unavailable" role="status">
+        当前版本已接入真实文章读取；这里的草稿只保留在当前页面，反馈保存和下一篇生成将在后续接入。
+      </p>
+
+      <button className="primary-button" type="button" disabled>
+        反馈保存与生成开发中
       </button>
-
-      {generationState === 'success' && (
-        <div className="feedback-status feedback-success" role="status">
-          <p>下一篇已生成：{nextArticleFileName ?? '下一篇文章.md'}</p>
-          {nextArticleFileName && (
-            <button className="text-button" type="button" onClick={onOpenNextArticle}>
-              打开下一篇
-            </button>
-          )}
-        </div>
-      )}
-
-      {generationState === 'failure' && (
-        <div className="feedback-status feedback-error" role="alert">
-          <p>反馈已保存，下一篇生成失败。</p>
-          <button className="text-button" type="button" onClick={onRetry}>
-            重新生成
-          </button>
-        </div>
-      )}
     </section>
   )
 }

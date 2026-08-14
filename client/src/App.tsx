@@ -1,20 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
+import { loadArticle, loadLibrary } from './api'
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
-import type { GenerationState } from './components/FeedbackPanel'
-import {
-  defaultArticlePath,
-  findArticleContext,
-  getNextArticle,
-  mockLibrary,
-} from './mockLibrary'
-import type { ReadingPosition } from './types'
+import type { ArticleContent, LibraryEntry, ReadingPosition } from './types'
 
-const expandedNodesStorageKey = 'interactive-study-boox.mock.expanded-nodes'
-const lastArticleStorageKey = 'interactive-study-boox.mock.last-article'
-const readingPositionStorageKey = 'interactive-study-boox.mock.reading-position'
+const expandedNodesStorageKey = 'interactive-study-boox.expanded-nodes'
+const lastArticleStorageKey = 'interactive-study-boox.last-article'
+const readingPositionStorageKey = 'interactive-study-boox.reading-position'
 
 function readStorageValue(key: string) {
   try {
@@ -52,12 +46,6 @@ function readExpandedNodes() {
   return new Set<string>()
 }
 
-function readInitialArticlePath() {
-  const savedPath = readStorageValue(lastArticleStorageKey)
-
-  return savedPath && findArticleContext(savedPath) ? savedPath : defaultArticlePath
-}
-
 function readScrollRatio(articlePath: string) {
   const savedValue = readStorageValue(readingPositionStorageKey)
 
@@ -82,39 +70,54 @@ function readScrollRatio(articlePath: string) {
   return 0
 }
 
+function hasArticle(entries: LibraryEntry[], articlePath: string): boolean {
+  return entries.some((entry) => {
+    if (entry.type === 'article') {
+      return entry.relativePath === articlePath
+    }
+
+    return hasArticle(entry.children, articlePath)
+  })
+}
+
+function getProjectName(articlePath: string) {
+  const pathParts = articlePath.split('/')
+
+  return pathParts.length > 1 ? pathParts[pathParts.length - 2] : '学习库'
+}
+
+function getErrorMessage(error: unknown, fallbackMessage: string) {
+  return error instanceof Error && error.message ? error.message : fallbackMessage
+}
+
 function App() {
-  const initialArticlePath = readInitialArticlePath()
-  const [selectedArticlePath, setSelectedArticlePath] = useState(initialArticlePath)
-  const [restoreScrollRatio, setRestoreScrollRatio] = useState(() =>
-    readScrollRatio(initialArticlePath),
-  )
+  const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([])
+  const [isLibraryLoading, setIsLibraryLoading] = useState(true)
+  const [libraryError, setLibraryError] = useState<string | null>(null)
+  const [libraryRequestVersion, setLibraryRequestVersion] = useState(0)
+  const [currentArticle, setCurrentArticle] = useState<ArticleContent | null>(null)
+  const [isArticleLoading, setIsArticleLoading] = useState(false)
+  const [articleError, setArticleError] = useState<string | null>(null)
+  const [selectedArticlePath, setSelectedArticlePath] = useState('')
+  const [restoreScrollRatio, setRestoreScrollRatio] = useState(0)
   const [expandedNodes, setExpandedNodes] = useState(readExpandedNodes)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileView, setMobileView] = useState<'reader' | 'library'>('reader')
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
-  const [generationState, setGenerationState] = useState<GenerationState>('idle')
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
-  const generationTimerRef = useRef<number | null>(null)
-
-  const currentContext = findArticleContext(selectedArticlePath)
+  const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
+  const latestArticleRequestRef = useRef(0)
 
   useEffect(() => {
-    writeStorageValue(lastArticleStorageKey, selectedArticlePath)
-  }, [selectedArticlePath])
+    if (currentArticle) {
+      writeStorageValue(lastArticleStorageKey, currentArticle.relativePath)
+    }
+  }, [currentArticle])
 
   useEffect(() => {
     writeStorageValue(expandedNodesStorageKey, JSON.stringify(Array.from(expandedNodes)))
   }, [expandedNodes])
-
-  useEffect(
-    () => () => {
-      if (generationTimerRef.current !== null) {
-        window.clearTimeout(generationTimerRef.current)
-      }
-    },
-    [],
-  )
 
   const handleToggleNode = useCallback((nodeId: string) => {
     setExpandedNodes((previousNodes) => {
@@ -130,47 +133,94 @@ function App() {
     })
   }, [])
 
-  const handleOpenArticle = useCallback((articlePath: string) => {
-    if (!findArticleContext(articlePath)) {
-      return
-    }
-
+  const handleOpenArticle = useCallback(async (articlePath: string) => {
+    const requestId = latestArticleRequestRef.current + 1
+    latestArticleRequestRef.current = requestId
     setSelectedArticlePath(articlePath)
-    setRestoreScrollRatio(readScrollRatio(articlePath))
-    setFeedback('')
-    setGenerationState('idle')
+    setCurrentArticle(null)
+    setArticleError(null)
+    setIsArticleLoading(true)
     setMobileView('reader')
     setReaderMenuOpen(false)
+
+    try {
+      const article = await loadArticle(articlePath)
+
+      if (requestId !== latestArticleRequestRef.current) {
+        return
+      }
+
+      setCurrentArticle(article)
+      setRestoreScrollRatio(readScrollRatio(article.relativePath))
+      setFeedback('')
+    } catch (error) {
+      if (requestId !== latestArticleRequestRef.current) {
+        return
+      }
+
+      setArticleError(getErrorMessage(error, '无法打开这篇 Markdown 文章。'))
+    } finally {
+      if (requestId === latestArticleRequestRef.current) {
+        setIsArticleLoading(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCurrentRequest = true
+
+    loadLibrary()
+      .then((library) => {
+        if (!isCurrentRequest) {
+          return
+        }
+
+        setLibraryEntries(library.entries)
+
+        const savedArticlePath = savedArticlePathRef.current
+        savedArticlePathRef.current = null
+
+        if (savedArticlePath && hasArticle(library.entries, savedArticlePath)) {
+          void handleOpenArticle(savedArticlePath)
+        }
+      })
+      .catch((error: unknown) => {
+        if (isCurrentRequest) {
+          setLibraryError(getErrorMessage(error, '无法读取测试学习库。'))
+        }
+      })
+      .finally(() => {
+        if (isCurrentRequest) {
+          setIsLibraryLoading(false)
+        }
+      })
+
+    return () => {
+      isCurrentRequest = false
+    }
+  }, [handleOpenArticle, libraryRequestVersion])
+
+  const handleRetryLibrary = useCallback(() => {
+    setIsLibraryLoading(true)
+    setLibraryError(null)
+    setLibraryRequestVersion((previousVersion) => previousVersion + 1)
   }, [])
 
   const handleReadingPositionChange = useCallback(
     (scrollRatio: number) => {
+      if (!currentArticle) {
+        return
+      }
+
       const readingPosition: ReadingPosition = {
-        articlePath: selectedArticlePath,
+        articlePath: currentArticle.relativePath,
         scrollRatio,
       }
 
       writeStorageValue(readingPositionStorageKey, JSON.stringify(readingPosition))
     },
-    [selectedArticlePath],
+    [currentArticle],
   )
-
-  const handleSubmitFeedback = useCallback(() => {
-    if (feedback.trim().length === 0 || generationState === 'generating') {
-      return
-    }
-
-    if (generationTimerRef.current !== null) {
-      window.clearTimeout(generationTimerRef.current)
-    }
-
-    setGenerationState('generating')
-    generationTimerRef.current = window.setTimeout(() => {
-      setFeedback('')
-      setGenerationState('success')
-      generationTimerRef.current = null
-    }, 900)
-  }, [feedback, generationState])
 
   const handleFocusFeedback = useCallback(() => {
     setMobileView('reader')
@@ -182,11 +232,100 @@ function App() {
     }, 0)
   }, [])
 
-  if (!currentContext) {
-    return null
+  const handleShowLibrary = useCallback(() => {
+    setSidebarOpen(true)
+    setMobileView('library')
+    setReaderMenuOpen(false)
+  }, [])
+
+  const renderLibraryContent = () => {
+    if (isLibraryLoading) {
+      return <p className="library-state" role="status">正在读取学习库……</p>
+    }
+
+    if (libraryError) {
+      return (
+        <div className="library-state library-state-error" role="alert">
+          <p>{libraryError}</p>
+          <button className="text-button" type="button" onClick={handleRetryLibrary}>
+            重新读取
+          </button>
+        </div>
+      )
+    }
+
+    if (libraryEntries.length === 0) {
+      return <p className="library-state">测试学习库中暂无 Markdown 文件。</p>
+    }
+
+    return (
+      <LibraryTree
+        entries={libraryEntries}
+        expandedNodes={expandedNodes}
+        selectedArticlePath={selectedArticlePath}
+        onToggleNode={handleToggleNode}
+        onOpenArticle={handleOpenArticle}
+      />
+    )
   }
 
-  const nextArticle = getNextArticle(currentContext)
+  const renderReaderContent = () => {
+    if (isLibraryLoading) {
+      return <section className="reader-status" role="status">正在读取学习库……</section>
+    }
+
+    if (libraryError) {
+      return (
+        <section className="reader-status" role="alert">
+          <p>{libraryError}</p>
+          <button className="text-button" type="button" onClick={handleRetryLibrary}>
+            重新读取学习库
+          </button>
+        </section>
+      )
+    }
+
+    if (isArticleLoading) {
+      return <section className="reader-status" role="status">正在打开文章……</section>
+    }
+
+    if (articleError) {
+      return (
+        <section className="reader-status" role="alert">
+          <p>{articleError}</p>
+          <button className="text-button" type="button" onClick={handleShowLibrary}>
+            打开学习库
+          </button>
+        </section>
+      )
+    }
+
+    if (!currentArticle) {
+      return (
+        <section className="reader-status">
+          <p>从学习库选择一篇 Markdown 文章开始阅读。</p>
+          <button className="text-button" type="button" onClick={handleShowLibrary}>
+            打开学习库
+          </button>
+        </section>
+      )
+    }
+
+    return (
+      <ReaderPane
+        key={currentArticle.relativePath}
+        article={currentArticle}
+        projectName={getProjectName(currentArticle.relativePath)}
+        restoreScrollRatio={restoreScrollRatio}
+        feedback={feedback}
+        feedbackRef={feedbackRef}
+        onFeedbackChange={setFeedback}
+        onReadingPositionChange={handleReadingPositionChange}
+        onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
+      />
+    )
+  }
+
   const appClassName = [
     'app-shell',
     sidebarOpen ? '' : 'sidebar-is-collapsed',
@@ -214,13 +353,7 @@ function App() {
           </button>
         </header>
 
-        <LibraryTree
-          categories={mockLibrary}
-          expandedNodes={expandedNodes}
-          selectedArticlePath={selectedArticlePath}
-          onToggleNode={handleToggleNode}
-          onOpenArticle={handleOpenArticle}
-        />
+        {renderLibraryContent()}
       </aside>
 
       <main className="reading-workspace">
@@ -234,26 +367,7 @@ function App() {
           </button>
         )}
 
-        <ReaderPane
-          key={currentContext.article.path}
-          article={currentContext.article}
-          projectName={currentContext.project.name}
-          restoreScrollRatio={restoreScrollRatio}
-          feedback={feedback}
-          feedbackRef={feedbackRef}
-          generationState={generationState}
-          nextArticleFileName={nextArticle?.fileName}
-          onFeedbackChange={setFeedback}
-          onSubmitFeedback={handleSubmitFeedback}
-          onOpenNextArticle={() => {
-            if (nextArticle) {
-              handleOpenArticle(nextArticle.path)
-            }
-          }}
-          onRetryGeneration={handleSubmitFeedback}
-          onReadingPositionChange={handleReadingPositionChange}
-          onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
-        />
+        {renderReaderContent()}
       </main>
 
       {mobileView === 'library' && (
@@ -273,13 +387,7 @@ function App() {
           <h1>学习库</h1>
         </header>
 
-        <LibraryTree
-          categories={mockLibrary}
-          expandedNodes={expandedNodes}
-          selectedArticlePath={selectedArticlePath}
-          onToggleNode={handleToggleNode}
-          onOpenArticle={handleOpenArticle}
-        />
+        {renderLibraryContent()}
       </aside>
 
       <ReaderMenu
