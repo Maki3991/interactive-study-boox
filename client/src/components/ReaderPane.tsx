@@ -1,66 +1,17 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
-import type { ArticleBlock, MockArticle } from '../types'
-import FeedbackPanel, { type GenerationState } from './FeedbackPanel'
+import type { ArticleContent } from '../types'
+import FeedbackPanel from './FeedbackPanel'
 
 interface ReaderPaneProps {
-  article: MockArticle
+  article: ArticleContent
   projectName: string
   restoreScrollRatio: number
   feedback: string
   feedbackRef: RefObject<HTMLTextAreaElement | null>
-  generationState: GenerationState
-  nextArticleFileName?: string
   onFeedbackChange: (value: string) => void
-  onSubmitFeedback: () => void
-  onOpenNextArticle: () => void
-  onRetryGeneration: () => void
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
-}
-
-function renderBlock(block: ArticleBlock, index: number) {
-  const key = `${block.kind}-${index}`
-
-  if (block.kind === 'heading') {
-    if (block.level === 1) {
-      return (
-        <h1 className="reader-heading reader-heading-1" key={key}>
-          {block.text}
-        </h1>
-      )
-    }
-
-    if (block.level === 2) {
-      return (
-        <h2 className="reader-heading reader-heading-2" key={key}>
-          {block.text}
-        </h2>
-      )
-    }
-
-    return (
-      <h3 className="reader-heading reader-heading-3" key={key}>
-        {block.text}
-      </h3>
-    )
-  }
-
-  if (block.kind === 'quote') {
-    return <blockquote key={key}>{block.text}</blockquote>
-  }
-
-  if (block.kind === 'list') {
-    return (
-      <ul key={key}>
-        {block.items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    )
-  }
-
-  return <p key={key}>{block.text}</p>
 }
 
 function isNarrowScreen() {
@@ -73,12 +24,7 @@ function ReaderPane({
   restoreScrollRatio,
   feedback,
   feedbackRef,
-  generationState,
-  nextArticleFileName,
   onFeedbackChange,
-  onSubmitFeedback,
-  onOpenNextArticle,
-  onRetryGeneration,
   onReadingPositionChange,
   onReaderMenuGesture,
 }: ReaderPaneProps) {
@@ -98,7 +44,7 @@ function ReaderPane({
     })
 
     return () => window.cancelAnimationFrame(animationFrame)
-  }, [article.path, restoreScrollRatio])
+  }, [article.relativePath, restoreScrollRatio])
 
   useEffect(
     () => () => {
@@ -181,18 +127,16 @@ function ReaderPane({
         onPointerUp={handlePointerUp}
       >
         <article className="markdown-article">
-          {article.blocks.map((block, index) => renderBlock(block, index))}
+          <p className="markdown-source-notice">
+            当前显示的是后端读取到的原始 Markdown；阅读排版将在下一步接入。
+          </p>
+          <pre className="markdown-source">{article.markdown}</pre>
         </article>
 
         <FeedbackPanel
           feedback={feedback}
           feedbackRef={feedbackRef}
-          generationState={generationState}
-          nextArticleFileName={nextArticleFileName}
           onFeedbackChange={onFeedbackChange}
-          onSubmit={onSubmitFeedback}
-          onOpenNextArticle={onOpenNextArticle}
-          onRetry={onRetryGeneration}
         />
       </div>
     </section>

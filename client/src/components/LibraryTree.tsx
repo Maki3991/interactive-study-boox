@@ -1,11 +1,11 @@
-import type { MockCategory } from '../types'
+import type { LibraryEntry } from '../types'
 
 interface LibraryTreeProps {
-  categories: MockCategory[]
+  entries: LibraryEntry[]
   expandedNodes: Set<string>
   selectedArticlePath: string
   onToggleNode: (nodeId: string) => void
-  onOpenArticle: (articlePath: string) => void
+  onOpenArticle: (articlePath: string) => void | Promise<void>
 }
 
 function TreeToggle({ expanded }: { expanded: boolean }) {
@@ -16,8 +16,81 @@ function TreeToggle({ expanded }: { expanded: boolean }) {
   )
 }
 
+interface TreeEntriesProps extends Omit<LibraryTreeProps, 'entries'> {
+  entries: LibraryEntry[]
+}
+
+function TreeEntries({
+  entries,
+  expandedNodes,
+  selectedArticlePath,
+  onToggleNode,
+  onOpenArticle,
+}: TreeEntriesProps) {
+  return (
+    <>
+      {entries.map((entry) => {
+        if (entry.type === 'folder') {
+          const nodeId = `folder:${entry.relativePath}`
+          const isExpanded = expandedNodes.has(nodeId)
+
+          return (
+            <div className="tree-node" key={entry.relativePath}>
+              <button
+                className="tree-row tree-folder-row"
+                type="button"
+                aria-expanded={isExpanded}
+                onClick={() => onToggleNode(nodeId)}
+              >
+                <TreeToggle expanded={isExpanded} />
+                <span className="tree-folder-mark" aria-hidden="true">
+                  □
+                </span>
+                <span>{entry.name}</span>
+              </button>
+
+              {isExpanded && (
+                <div className="tree-children">
+                  {entry.children.length > 0 ? (
+                    <TreeEntries
+                      entries={entry.children}
+                      expandedNodes={expandedNodes}
+                      selectedArticlePath={selectedArticlePath}
+                      onToggleNode={onToggleNode}
+                      onOpenArticle={onOpenArticle}
+                    />
+                  ) : (
+                    <p className="tree-empty">该文件夹暂无 Markdown 文件</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        const isCurrentArticle = entry.relativePath === selectedArticlePath
+
+        return (
+          <button
+            className={`tree-row tree-file-row${isCurrentArticle ? ' is-current' : ''}`}
+            type="button"
+            key={entry.relativePath}
+            aria-current={isCurrentArticle ? 'page' : undefined}
+            onClick={() => onOpenArticle(entry.relativePath)}
+          >
+            <span className="tree-file-mark" aria-hidden="true">
+              ▤
+            </span>
+            <span>{entry.fileName}</span>
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
 function LibraryTree({
-  categories,
+  entries,
   expandedNodes,
   selectedArticlePath,
   onToggleNode,
@@ -25,78 +98,13 @@ function LibraryTree({
 }: LibraryTreeProps) {
   return (
     <nav className="library-tree" aria-label="学习库文件树">
-      {categories.map((category) => {
-        const categoryNodeId = `category:${category.id}`
-        const categoryExpanded = expandedNodes.has(categoryNodeId)
-
-        return (
-          <section className="tree-category" key={category.id}>
-            <button
-              className="tree-row tree-folder-row"
-              type="button"
-              aria-expanded={categoryExpanded}
-              onClick={() => onToggleNode(categoryNodeId)}
-            >
-              <TreeToggle expanded={categoryExpanded} />
-              <span className="tree-folder-mark" aria-hidden="true">
-                □
-              </span>
-              <span>{category.label}</span>
-            </button>
-
-            {categoryExpanded && (
-              <div className="tree-children">
-                {category.projects.map((project) => {
-                  const projectNodeId = `project:${project.id}`
-                  const projectExpanded = expandedNodes.has(projectNodeId)
-
-                  return (
-                    <div className="tree-project" key={project.id}>
-                      <button
-                        className="tree-row tree-folder-row"
-                        type="button"
-                        aria-expanded={projectExpanded}
-                        onClick={() => onToggleNode(projectNodeId)}
-                      >
-                        <TreeToggle expanded={projectExpanded} />
-                        <span className="tree-folder-mark" aria-hidden="true">
-                          □
-                        </span>
-                        <span>{project.name}</span>
-                      </button>
-
-                      {projectExpanded && (
-                        <div className="tree-files">
-                          {project.articles.map((article) => {
-                            const isCurrentArticle = article.path === selectedArticlePath
-
-                            return (
-                              <button
-                                className={`tree-row tree-file-row${
-                                  isCurrentArticle ? ' is-current' : ''
-                                }`}
-                                type="button"
-                                key={article.path}
-                                aria-current={isCurrentArticle ? 'page' : undefined}
-                                onClick={() => onOpenArticle(article.path)}
-                              >
-                                <span className="tree-file-mark" aria-hidden="true">
-                                  ▤
-                                </span>
-                                <span>{article.fileName}</span>
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
-        )
-      })}
+      <TreeEntries
+        entries={entries}
+        expandedNodes={expandedNodes}
+        selectedArticlePath={selectedArticlePath}
+        onToggleNode={onToggleNode}
+        onOpenArticle={onOpenArticle}
+      />
     </nav>
   )
 }
