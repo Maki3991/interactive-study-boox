@@ -66,3 +66,16 @@ export interface ArticleContent {
   kind: ArticleKind
   markdown: string
 }
+
+export interface SaveFeedbackRequest {
+  articlePath: string
+  feedback: string
+  submissionId: string
+}
+
+export interface SaveFeedbackResponse {
+  feedbackSaved: true
+  currentArticlePath: string
+  submissionId: string
+  alreadySaved: boolean
+}
