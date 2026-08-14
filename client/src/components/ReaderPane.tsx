@@ -10,7 +10,10 @@ interface ReaderPaneProps {
   restoreScrollRatio: number
   feedback: string
   feedbackRef: RefObject<HTMLTextAreaElement | null>
+  feedbackStatus: { kind: 'success' | 'error'; message: string } | null
+  isFeedbackSaving: boolean
   onFeedbackChange: (value: string) => void
+  onSaveFeedback: () => void | Promise<void>
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
   onOpenArticle: (articlePath: string) => void | Promise<void>
@@ -48,7 +51,10 @@ function ReaderPane({
   restoreScrollRatio,
   feedback,
   feedbackRef,
+  feedbackStatus,
+  isFeedbackSaving,
   onFeedbackChange,
+  onSaveFeedback,
   onReadingPositionChange,
   onReaderMenuGesture,
   onOpenArticle,
@@ -189,7 +195,10 @@ function ReaderPane({
         <FeedbackPanel
           feedback={feedback}
           feedbackRef={feedbackRef}
+          feedbackStatus={feedbackStatus}
+          isSaving={isFeedbackSaving}
           onFeedbackChange={onFeedbackChange}
+          onSave={onSaveFeedback}
         />
       </div>
     </section>
