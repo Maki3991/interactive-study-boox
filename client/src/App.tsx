@@ -322,6 +322,7 @@ function App() {
         onFeedbackChange={setFeedback}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
+        onOpenArticle={handleOpenArticle}
       />
     )
   }
