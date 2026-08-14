@@ -72,6 +72,7 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - 已用浏览器本地存储暂时演示学习库展开状态、最近打开的假文章和自动续读位置；后端接入后会改由真实配置 API 保存。
 - 已运行 `npm run build` 与 `npm run lint`，均通过。
 - 已初始化 `server/`：Node.js + Express + TypeScript，并创建后端入口 `server/src/index.ts`。
+- 已在 `server/package.json` 增加后端开发脚本：在 `server/` 中运行 `npm run dev` 会执行 `tsx watch src/index.ts`；后续修改后端 TypeScript 文件时，服务会自动重启。
 - 已实现并手动验证 `GET /api/health`，返回 `{ "status": "ok" }`。
 - 已实现并验证 `GET /api/library`：递归扫描 `sample-library/`，返回真实文件夹树和 `.md` 文件，忽略 `.txt`、`.json` 等非 Markdown 普通文件；响应已确认包含 `archived`、`on-going`、`yet-to-start` 三个顶层文件夹。
 - 已实现并验证 `GET /api/article?path=...`：读取指定 Markdown 的原始正文和摘要信息；请求路径会被规范化并校验在学习库边界内。真实文章 `archived/阿德勒心理学/01_目的论.md` 已成功读取；越界的 `../outside.md` 返回 `403`。
