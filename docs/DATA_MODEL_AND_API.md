@@ -1,8 +1,8 @@
 # Data Model and API
 
-> 版本：v0.3
-> 更新日期：2026-08-14
-> 当前状态：真实 Markdown 读取与反馈安全保存已实现；AI 生成接口仍处于设计阶段
+> 版本：v0.4
+> 更新日期：2026-08-15
+> 当前状态：书籍学习模式已确认；AI 上下文读取和生成接口已实现，前端接入与实际生成验证待完成
 
 ## 1. 文档目的
 
@@ -20,8 +20,11 @@
 
 | 数据 | 保存位置 | 说明 |
 | --- | --- | --- |
+| 原始书籍材料 | `sources/` | 拆分后的原始 Markdown，只读使用 |
+| 原文索引 | `00-原文索引.md` | 原始章节的路径、顺序和摘要 |
 | 学习计划 | `00-学习计划.md` | 每个学习项目的总体计划 |
 | 学习文章 | `01.md`、`02.md` 等 | AI 生成或用户手动准备的文章 |
+| 原文映射 | `00-学习计划.md` | 每篇学习文章对应的一个或多个原文文件 |
 | 用户反馈 | 当前文章末尾 | 不单独创建反馈数据库或文件夹 |
 | 学习库目录树 | 文件夹结构 | 保留用户真实的文件夹层级；只把 `.md` 文件作为可阅读文章返回 |
 | 学习库路径 | 本地 JSON 配置 | 只由后端读取和修改 |
@@ -38,6 +41,13 @@
 学习库/
 ├── yet-to-start/
 │   └── Thinking, Fast and Slow/
+│       ├── sources/
+│       │   ├── 00-contents.md
+│       │   └── part-1/
+│       │       └── 01-the-characters-of-the-story.md
+│       ├── 00-原文索引.md
+│       ├── 00-学习计划.md
+│       └── 01.md
 ├── on-going/
 │   └── 维特根斯坦十讲/
 │       └── 学习课题/
@@ -59,6 +69,8 @@
 - 后端负责把相对路径转换为当前系统的真实路径。
 - 后端必须拒绝任何试图访问学习库之外的路径。
 - P0 的文章读取和写入只接受 `.md` 文件。
+- `sources/` 下的 Markdown 可以读取，生成流程不能改写或覆盖其中的文件。
+- AI 生成的学习文章写入项目根目录的编号文件，例如 `01.md`、`02.md`。
 
 相对路径同时充当 P0 的资源标识，不额外生成数据库数字 ID。
 
@@ -124,7 +136,7 @@ interface FolderNode {
 ### 4.5 打开文章后的摘要
 
 ```ts
-type ArticleKind = 'plan' | 'lesson' | 'other'
+type ArticleKind = 'plan' | 'lesson' | 'source' | 'other'
 
 interface ArticleSummary {
   fileName: string
@@ -137,7 +149,7 @@ interface ArticleSummary {
 - `fileName`：例如 `01.md`。
 - `title`：优先读取 Markdown 中第一个一级标题；不存在时使用文件名。
 - `relativePath`：例如 `on-going/维特根斯坦十讲/维特根斯坦十讲.md`。
-- `kind`：`00-学习计划.md` 为 `plan`，正常课程为 `lesson`，无法识别时为 `other`。
+- `kind`：`00-学习计划.md` 为 `plan`，项目根目录的编号文章为 `lesson`，`sources/` 下的文件为 `source`，无法识别时为 `other`。
 
 ### 4.6 文章内容
 
@@ -149,7 +161,23 @@ interface ArticleContent extends ArticleSummary {
 
 后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。
 
-### 4.7 保存反馈（当前实现）
+### 4.7 原文映射
+
+```ts
+interface SourceReference {
+  relativePath: string
+  heading?: string
+}
+
+interface LessonSourceMapping {
+  lessonPath: string
+  sourceRefs: SourceReference[]
+}
+```
+
+映射保存在 `00-学习计划.md`。一篇学习文章可以对应多个原文文件；第一版以文件路径为主要单位，`heading` 暂作为可选字段。
+
+### 4.8 保存反馈（当前实现）
 
 ```ts
 interface SaveFeedbackRequest {
@@ -174,7 +202,7 @@ interface SaveFeedbackResponse {
 
 `POST /api/feedback` 只完成安全保存，不调用 AI。这是接入生成能力前的独立最小闭环。
 
-### 4.8 提交反馈并生成下一篇（后续）
+### 4.9 提交反馈并生成下一篇（后续）
 
 ```ts
 interface GenerateNextRequest extends SaveFeedbackRequest {}
@@ -187,8 +215,9 @@ interface GenerateNextResponse {
 ```
 
 - 后端从 `articlePath` 推导当前项目，不允许前端另传一个可能冲突的项目路径。
+- 前端不提交原文内容或 `sourceRefs`；后端从 `00-学习计划.md` 读取映射并在本地加载 `sources/` 文件。
 
-### 4.9 统一错误格式
+### 4.10 统一错误格式
 
 ```ts
 interface ApiErrorResponse {
@@ -214,6 +243,7 @@ interface ApiErrorResponse {
 | 设置学习库 | `PUT` | `/api/config/library` | 校验并保存学习库路径 |
 | 获取学习库列表 | `GET` | `/api/library` | 递归扫描文件夹和 Markdown 文件 |
 | 打开一篇文章 | `GET` | `/api/article?path=...` | 读取指定 Markdown |
+| 预览学习上下文（开发检查） | `GET` | `/api/learning/context-preview?path=...` | 检查计划、当前文章和映射原文是否能被找到，不调用 AI |
 | 保存最近打开文章和续读位置 | `PUT` | `/api/config/last-opened` | 更新本地配置 |
 | 保存反馈（当前实现） | `POST` | `/api/feedback` | 校验、去重并追加反馈到当前文章 |
 | 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、创建文章 |
@@ -409,7 +439,7 @@ Content-Type: application/json
 我理解了 GET 和 POST，但还不明白接口错误应该怎样处理。
 ```
 
-### 6.7 提交反馈并生成下一篇（后续）
+### 6.7 提交反馈并生成下一篇（后端已实现，前端待接入）
 
 ```http
 POST /api/learning/generate-next
@@ -433,11 +463,14 @@ Content-Type: application/json
 3. 检查 `00-学习计划.md`；
 4. 使用 `submissionId` 判断反馈是否已经写入；
 5. 尚未写入时，把反馈追加到当前文章末尾；
-6. 读取学习计划、当前文章和本次反馈；
-7. 调用 AI 服务；
-8. 计算下一篇文章文件名；
-9. 确认不会覆盖已有文件后创建新 Markdown；
-10. 返回新文章摘要。
+6. 从学习计划读取当前文章和下一篇的原文映射；
+7. 校验映射路径位于项目的 `sources/` 内，并读取对应原文；
+8. 组装固定学习规则、学习计划、当前文章、反馈和原文上下文；
+9. 调用 OpenAI，并校验返回的 Markdown 结构；
+10. 计算下一篇文章文件名；
+11. 确认不会覆盖已有文件后创建新 Markdown；
+12. 更新学习计划中的进度、反馈摘要和原文映射；
+13. 返回新文章摘要。
 
 成功响应：`201 Created`
 
@@ -480,6 +513,8 @@ AI 生成失败时，反馈仍然保留。错误响应应明确返回：
 | `422` | 文件存在，但不满足生成条件，例如缺少学习计划 |
 | `500` | 本地文件读取或写入失败 |
 | `502` | AI 服务调用失败 |
+
+生成前缺少原文映射、原文文件不存在或映射不在 `sources/` 时，使用 `422`，不调用 OpenAI。
 
 ## 8. 第一条开发功能链
 
@@ -535,7 +570,7 @@ P0 可以保存一个最近打开文章的自动续读位置；它只是本机�
 
 ## 10. 尚未确认
 
-- AI 服务供应商和具体模型。
 - 固定提示词的最终内容。
 - 遇到不规范文章文件名时如何计算下一篇编号。
+- 原文映射是否细化到 Markdown 标题或小节。
 - 学习库使用系统文件夹选择器还是先手动填写路径。
