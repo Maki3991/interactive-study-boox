@@ -1,8 +1,8 @@
 # Data Model and API
 
-> 版本：v0.2
-> 更新日期：2026-08-13
-> 当前状态：P0 数据模型和 API 初稿，可用于指导第一条功能链开发
+> 版本：v0.3
+> 更新日期：2026-08-14
+> 当前状态：真实 Markdown 读取与反馈安全保存已实现；AI 生成接口仍处于设计阶段
 
 ## 1. 文档目的
 
@@ -149,14 +149,35 @@ interface ArticleContent extends ArticleSummary {
 
 后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。
 
-### 4.7 提交反馈并生成下一篇
+### 4.7 保存反馈（当前实现）
 
 ```ts
-interface GenerateNextRequest {
+interface SaveFeedbackRequest {
   articlePath: string
   feedback: string
   submissionId: string
 }
+
+interface SaveFeedbackResponse {
+  feedbackSaved: true
+  currentArticlePath: string
+  submissionId: string
+  alreadySaved: boolean
+}
+```
+
+- `articlePath`：当前文章的相对路径。
+- `feedback`：用户输入或语音转文字后的反馈。
+- `submissionId`：前端为一次点击生成并在失败重试时复用的唯一字符串。
+- `alreadySaved`：首次写入时为 `false`；同一 `submissionId` 的重试已写入时为 `true`，不会再次追加内容。
+- 后端在 Markdown 中使用不可见标记 `<!-- interactive-study-boox:feedback-submission-id=<submissionId> -->` 识别同一次提交。标记紧跟在追加的“学习反馈”标题之后；阅读器忽略该 HTML 注释。
+
+`POST /api/feedback` 只完成安全保存，不调用 AI。这是接入生成能力前的独立最小闭环。
+
+### 4.8 提交反馈并生成下一篇（后续）
+
+```ts
+interface GenerateNextRequest extends SaveFeedbackRequest {}
 
 interface GenerateNextResponse {
   feedbackSaved: boolean
@@ -165,12 +186,9 @@ interface GenerateNextResponse {
 }
 ```
 
-- `articlePath`：当前文章的相对路径。
-- `feedback`：用户输入或语音转文字后的反馈。
-- `submissionId`：前端为一次提交生成的唯一字符串，用于重试时避免重复追加反馈。
 - 后端从 `articlePath` 推导当前项目，不允许前端另传一个可能冲突的项目路径。
 
-### 4.8 统一错误格式
+### 4.9 统一错误格式
 
 ```ts
 interface ApiErrorResponse {
@@ -197,6 +215,7 @@ interface ApiErrorResponse {
 | 获取学习库列表 | `GET` | `/api/library` | 递归扫描文件夹和 Markdown 文件 |
 | 打开一篇文章 | `GET` | `/api/article?path=...` | 读取指定 Markdown |
 | 保存最近打开文章和续读位置 | `PUT` | `/api/config/last-opened` | 更新本地配置 |
+| 保存反馈（当前实现） | `POST` | `/api/feedback` | 校验、去重并追加反馈到当前文章 |
 | 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、创建文章 |
 
 ## 6. API 详细约定
@@ -341,7 +360,56 @@ Content-Type: application/json
 
 该接口只记录最近打开文章的自动续读位置，不记录已完成状态、阅读时长或面向用户显示的阅读进度。
 
-### 6.6 提交反馈并生成下一篇
+### 6.6 保存反馈（当前实现）
+
+```http
+POST /api/feedback
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "articlePath": "on-going/示例项目/01.md",
+  "feedback": "我理解了 GET 和 POST，但还不明白接口错误应该怎样处理。",
+  "submissionId": "4f90e687-39df-43eb-a266-2e52dbd20e32"
+}
+```
+
+后端处理顺序：
+
+1. 校验文章相对路径、Markdown 后缀、学习库边界、反馈内容与 `submissionId`；
+2. 确认目标存在且是普通 Markdown 文件；
+3. 同一篇文章的写入请求依次处理，避免并发重试同时通过去重检查；
+4. 读取文章，检查是否已有相同 `submissionId` 的内部标记；
+5. 首次提交时在文章末尾追加分隔线、“学习反馈”标题、内部标记和反馈正文；重试时不再写入；
+6. 返回明确的保存结果，不调用 AI。
+
+成功响应：`200 OK`
+
+```json
+{
+  "feedbackSaved": true,
+  "currentArticlePath": "on-going/示例项目/01.md",
+  "submissionId": "4f90e687-39df-43eb-a266-2e52dbd20e32",
+  "alreadySaved": false
+}
+```
+
+追加后的 Markdown 形状如下：
+
+```markdown
+---
+
+## 学习反馈
+
+<!-- interactive-study-boox:feedback-submission-id=4f90e687-39df-43eb-a266-2e52dbd20e32 -->
+
+我理解了 GET 和 POST，但还不明白接口错误应该怎样处理。
+```
+
+### 6.7 提交反馈并生成下一篇（后续）
 
 ```http
 POST /api/learning/generate-next
@@ -471,4 +539,3 @@ P0 可以保存一个最近打开文章的自动续读位置；它只是本机�
 - 固定提示词的最终内容。
 - 遇到不规范文章文件名时如何计算下一篇编号。
 - 学习库使用系统文件夹选择器还是先手动填写路径。
-- 反馈在 Markdown 中保存 `submissionId` 的具体标记格式。
