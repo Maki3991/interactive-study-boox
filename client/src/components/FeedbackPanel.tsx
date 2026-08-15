@@ -5,8 +5,10 @@ interface FeedbackPanelProps {
   feedbackRef: RefObject<HTMLTextAreaElement | null>
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isSaving: boolean
+  isGenerating: boolean
   onFeedbackChange: (value: string) => void
   onSave: () => void | Promise<void>
+  onGenerate: () => void | Promise<void>
 }
 
 function FeedbackPanel({
@@ -14,13 +16,16 @@ function FeedbackPanel({
   feedbackRef,
   feedbackStatus,
   isSaving,
+  isGenerating,
   onFeedbackChange,
   onSave,
+  onGenerate,
 }: FeedbackPanelProps) {
-  const canSave = feedback.trim().length > 0 && !isSaving
+  const isBusy = isSaving || isGenerating
+  const canSubmit = feedback.trim().length > 0 && !isBusy
 
   return (
-    <section className="feedback-panel" aria-labelledby="feedback-heading" aria-busy={isSaving}>
+    <section className="feedback-panel" aria-labelledby="feedback-heading" aria-busy={isBusy}>
       <div className="feedback-divider" aria-hidden="true" />
       <h2 id="feedback-heading">学习反馈</h2>
       <p className="feedback-help">说说你理解了什么、哪里卡住了，或希望下一篇怎么继续。</p>
@@ -30,12 +35,12 @@ function FeedbackPanel({
         value={feedback}
         rows={6}
         placeholder="这里可以直接打字，也可以调用 BOOX 系统的语音转文字。"
-        disabled={isSaving}
+        disabled={isBusy}
         onChange={(event) => onFeedbackChange(event.target.value)}
       />
 
       <p className="feedback-save-note">
-        当前版本会把反馈追加到这篇 Markdown 文件；下一篇 AI 生成将在后续接入。
+        可以只保存反馈，也可以提交反馈并让 AI 根据本书原文生成下一篇文章。
       </p>
 
       {feedbackStatus && (
@@ -47,9 +52,14 @@ function FeedbackPanel({
         </div>
       )}
 
-      <button className="primary-button" type="button" disabled={!canSave} onClick={() => void onSave()}>
-        {isSaving ? '正在保存反馈……' : '保存反馈'}
-      </button>
+      <div className="feedback-actions">
+        <button className="secondary-button" type="button" disabled={!canSubmit} onClick={() => void onSave()}>
+          {isSaving ? '正在保存反馈……' : '只保存反馈'}
+        </button>
+        <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void onGenerate()}>
+          {isGenerating ? '正在生成下一篇……' : '提交并生成下一篇'}
+        </button>
+      </div>
     </section>
   )
 }

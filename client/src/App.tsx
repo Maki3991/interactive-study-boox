@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
-import { loadArticle, loadLibrary, saveFeedback } from './api'
+import { generateNextLesson, loadArticle, loadLibrary, saveFeedback } from './api'
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
@@ -119,11 +119,13 @@ function App() {
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
+  const [isNextLessonGenerating, setIsNextLessonGenerating] = useState(false)
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
   const latestArticleRequestRef = useRef(0)
   const latestFeedbackRequestRef = useRef(0)
+  const latestGenerationRequestRef = useRef(0)
   const pendingFeedbackSubmissionRef = useRef<{ feedback: string; submissionId: string } | null>(null)
 
   useEffect(() => {
@@ -154,12 +156,14 @@ function App() {
     const requestId = latestArticleRequestRef.current + 1
     latestArticleRequestRef.current = requestId
     latestFeedbackRequestRef.current += 1
+    latestGenerationRequestRef.current += 1
     pendingFeedbackSubmissionRef.current = null
     setSelectedArticlePath(articlePath)
     setCurrentArticle(null)
     setArticleError(null)
     setIsArticleLoading(true)
     setIsFeedbackSaving(false)
+    setIsNextLessonGenerating(false)
     setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
@@ -242,6 +246,55 @@ function App() {
     } finally {
       if (requestId === latestFeedbackRequestRef.current) {
         setIsFeedbackSaving(false)
+      }
+    }
+  }, [currentArticle, feedback])
+
+  const handleGenerateNextLesson = useCallback(async () => {
+    if (!currentArticle || feedback.trim() === '') {
+      return
+    }
+
+    const existingSubmission = pendingFeedbackSubmissionRef.current
+    const submissionId =
+      existingSubmission?.feedback === feedback ? existingSubmission.submissionId : createSubmissionId()
+    const requestId = latestGenerationRequestRef.current + 1
+
+    latestGenerationRequestRef.current = requestId
+    pendingFeedbackSubmissionRef.current = { feedback, submissionId }
+    setIsNextLessonGenerating(true)
+    setFeedbackStatus(null)
+
+    try {
+      const result = await generateNextLesson({
+        articlePath: currentArticle.relativePath,
+        feedback: feedback.trim(),
+        submissionId,
+      })
+
+      if (requestId !== latestGenerationRequestRef.current) {
+        return
+      }
+
+      pendingFeedbackSubmissionRef.current = null
+      setFeedback('')
+      setFeedbackStatus({
+        kind: 'success',
+        message: `下一篇已生成：${result.nextArticle.fileName}。当前仍停留在这篇文章。`,
+      })
+      setLibraryRequestVersion((previousVersion) => previousVersion + 1)
+    } catch (error) {
+      if (requestId !== latestGenerationRequestRef.current) {
+        return
+      }
+
+      setFeedbackStatus({
+        kind: 'error',
+        message: getErrorMessage(error, '反馈已保存，但下一篇生成失败；可以保留草稿后重试。'),
+      })
+    } finally {
+      if (requestId === latestGenerationRequestRef.current) {
+        setIsNextLessonGenerating(false)
       }
     }
   }, [currentArticle, feedback])
@@ -401,8 +454,10 @@ function App() {
         feedbackRef={feedbackRef}
         feedbackStatus={feedbackStatus}
         isFeedbackSaving={isFeedbackSaving}
+        isNextLessonGenerating={isNextLessonGenerating}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
+        onGenerateNextLesson={handleGenerateNextLesson}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
         onOpenArticle={handleOpenArticle}
