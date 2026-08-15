@@ -12,8 +12,10 @@ interface ReaderPaneProps {
   feedbackRef: RefObject<HTMLTextAreaElement | null>
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isFeedbackSaving: boolean
+  isNextLessonGenerating: boolean
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
+  onGenerateNextLesson: () => void | Promise<void>
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
   onOpenArticle: (articlePath: string) => void | Promise<void>
@@ -53,8 +55,10 @@ function ReaderPane({
   feedbackRef,
   feedbackStatus,
   isFeedbackSaving,
+  isNextLessonGenerating,
   onFeedbackChange,
   onSaveFeedback,
+  onGenerateNextLesson,
   onReadingPositionChange,
   onReaderMenuGesture,
   onOpenArticle,
@@ -197,8 +201,10 @@ function ReaderPane({
           feedbackRef={feedbackRef}
           feedbackStatus={feedbackStatus}
           isSaving={isFeedbackSaving}
+          isGenerating={isNextLessonGenerating}
           onFeedbackChange={onFeedbackChange}
           onSave={onSaveFeedback}
+          onGenerate={onGenerateNextLesson}
         />
       </div>
     </section>
