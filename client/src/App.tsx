@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
-import { loadArticle, loadLibrary } from './api'
+import { loadArticle, loadLibrary, saveFeedback } from './api'
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
@@ -9,6 +9,11 @@ import type { ArticleContent, LibraryEntry, ReadingPosition } from './types'
 const expandedNodesStorageKey = 'interactive-study-boox.expanded-nodes'
 const lastArticleStorageKey = 'interactive-study-boox.last-article'
 const readingPositionStorageKey = 'interactive-study-boox.reading-position'
+
+interface FeedbackStatus {
+  kind: 'success' | 'error'
+  message: string
+}
 
 function readStorageValue(key: string) {
   try {
@@ -90,6 +95,14 @@ function getErrorMessage(error: unknown, fallbackMessage: string) {
   return error instanceof Error && error.message ? error.message : fallbackMessage
 }
 
+function createSubmissionId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 function App() {
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([])
   const [isLibraryLoading, setIsLibraryLoading] = useState(true)
@@ -105,9 +118,13 @@ function App() {
   const [mobileView, setMobileView] = useState<'reader' | 'library'>('reader')
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
+  const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
   const latestArticleRequestRef = useRef(0)
+  const latestFeedbackRequestRef = useRef(0)
+  const pendingFeedbackSubmissionRef = useRef<{ feedback: string; submissionId: string } | null>(null)
 
   useEffect(() => {
     if (currentArticle) {
@@ -136,10 +153,14 @@ function App() {
   const handleOpenArticle = useCallback(async (articlePath: string) => {
     const requestId = latestArticleRequestRef.current + 1
     latestArticleRequestRef.current = requestId
+    latestFeedbackRequestRef.current += 1
+    pendingFeedbackSubmissionRef.current = null
     setSelectedArticlePath(articlePath)
     setCurrentArticle(null)
     setArticleError(null)
     setIsArticleLoading(true)
+    setIsFeedbackSaving(false)
+    setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
 
@@ -165,6 +186,65 @@ function App() {
       }
     }
   }, [])
+
+  const handleFeedbackChange = useCallback((value: string) => {
+    setFeedback(value)
+    setFeedbackStatus(null)
+
+    if (pendingFeedbackSubmissionRef.current?.feedback !== value) {
+      pendingFeedbackSubmissionRef.current = null
+    }
+  }, [])
+
+  const handleSaveFeedback = useCallback(async () => {
+    if (!currentArticle || feedback.trim() === '') {
+      return
+    }
+
+    const existingSubmission = pendingFeedbackSubmissionRef.current
+    const submissionId =
+      existingSubmission?.feedback === feedback ? existingSubmission.submissionId : createSubmissionId()
+    const requestId = latestFeedbackRequestRef.current + 1
+
+    latestFeedbackRequestRef.current = requestId
+    pendingFeedbackSubmissionRef.current = { feedback, submissionId }
+    setIsFeedbackSaving(true)
+    setFeedbackStatus(null)
+
+    try {
+      const result = await saveFeedback({
+        articlePath: currentArticle.relativePath,
+        feedback: feedback.trim(),
+        submissionId,
+      })
+
+      if (requestId !== latestFeedbackRequestRef.current) {
+        return
+      }
+
+      pendingFeedbackSubmissionRef.current = null
+      setFeedback('')
+      setFeedbackStatus({
+        kind: 'success',
+        message: result.alreadySaved
+          ? '这份反馈此前已经保存，系统没有重复写入。'
+          : '反馈已安全保存到当前 Markdown 文件。',
+      })
+    } catch (error) {
+      if (requestId !== latestFeedbackRequestRef.current) {
+        return
+      }
+
+      setFeedbackStatus({
+        kind: 'error',
+        message: getErrorMessage(error, '暂时无法保存反馈，草稿仍保留在输入框中。'),
+      })
+    } finally {
+      if (requestId === latestFeedbackRequestRef.current) {
+        setIsFeedbackSaving(false)
+      }
+    }
+  }, [currentArticle, feedback])
 
   useEffect(() => {
     let isCurrentRequest = true
@@ -319,7 +399,10 @@ function App() {
         restoreScrollRatio={restoreScrollRatio}
         feedback={feedback}
         feedbackRef={feedbackRef}
-        onFeedbackChange={setFeedback}
+        feedbackStatus={feedbackStatus}
+        isFeedbackSaving={isFeedbackSaving}
+        onFeedbackChange={handleFeedbackChange}
+        onSaveFeedback={handleSaveFeedback}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
         onOpenArticle={handleOpenArticle}
