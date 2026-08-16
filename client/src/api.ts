@@ -1,5 +1,6 @@
 import type {
   ArticleContent,
+  GenerateNextLessonResponse,
   LibraryResponse,
   SaveFeedbackRequest,
   SaveFeedbackResponse,
@@ -9,6 +10,9 @@ const apiBasePath = '/api'
 
 interface ApiErrorResponse {
   message?: string
+  error?: {
+    message?: string
+  }
 }
 
 async function requestJson<T>(requestPath: string, init?: RequestInit): Promise<T> {
@@ -16,7 +20,8 @@ async function requestJson<T>(requestPath: string, init?: RequestInit): Promise<
 
   if (!response.ok) {
     const errorResponse = (await response.json().catch(() => null)) as ApiErrorResponse | null
-    const message = errorResponse?.message ?? `请求失败（${response.status}）`
+    const message =
+      errorResponse?.message ?? errorResponse?.error?.message ?? `请求失败（${response.status}）`
 
     throw new Error(message)
   }
@@ -36,6 +41,14 @@ export function loadArticle(relativePath: string) {
 
 export function saveFeedback(request: SaveFeedbackRequest) {
   return requestJson<SaveFeedbackResponse>('/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
+}
+
+export function generateNextLesson(request: SaveFeedbackRequest) {
+  return requestJson<GenerateNextLessonResponse>('/learning/generate-next', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),

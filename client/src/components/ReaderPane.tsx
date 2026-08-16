@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import Markdown from 'react-markdown'
-import type { ArticleContent } from '../types'
+import type { ArticleContent, GenerationState } from '../types'
 import FeedbackPanel from './FeedbackPanel'
 
 interface ReaderPaneProps {
@@ -12,8 +12,12 @@ interface ReaderPaneProps {
   feedbackRef: RefObject<HTMLTextAreaElement | null>
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isFeedbackSaving: boolean
+  isNextLessonGenerating: boolean
+  generationState: GenerationState
+  hasSavedFeedback: boolean
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
+  onGenerateNextLesson: () => void | Promise<void>
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
   onOpenArticle: (articlePath: string) => void | Promise<void>
@@ -53,8 +57,12 @@ function ReaderPane({
   feedbackRef,
   feedbackStatus,
   isFeedbackSaving,
+  isNextLessonGenerating,
+  generationState,
+  hasSavedFeedback,
   onFeedbackChange,
   onSaveFeedback,
+  onGenerateNextLesson,
   onReadingPositionChange,
   onReaderMenuGesture,
   onOpenArticle,
@@ -197,8 +205,12 @@ function ReaderPane({
           feedbackRef={feedbackRef}
           feedbackStatus={feedbackStatus}
           isSaving={isFeedbackSaving}
+          isGenerating={isNextLessonGenerating}
+          generationState={generationState}
+          hasSavedFeedback={hasSavedFeedback}
           onFeedbackChange={onFeedbackChange}
           onSave={onSaveFeedback}
+          onGenerate={onGenerateNextLesson}
         />
       </div>
     </section>
