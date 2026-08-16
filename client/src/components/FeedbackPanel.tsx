@@ -8,6 +8,7 @@ interface FeedbackPanelProps {
   isSaving: boolean
   isGenerating: boolean
   generationState: GenerationState
+  hasSavedFeedback: boolean
   onFeedbackChange: (value: string) => void
   onSave: () => void | Promise<void>
   onGenerate: () => void | Promise<void>
@@ -20,13 +21,15 @@ function FeedbackPanel({
   isSaving,
   isGenerating,
   generationState,
+  hasSavedFeedback,
   onFeedbackChange,
   onSave,
   onGenerate,
 }: FeedbackPanelProps) {
   const isBusy = isSaving || isGenerating || generationState !== 'ready'
   const canSubmit = feedback.trim().length > 0 && !isBusy
-  const canGenerate = canSubmit && generationState === 'ready'
+  const canGenerate =
+    (feedback.trim().length > 0 || hasSavedFeedback) && !isBusy && generationState === 'ready'
 
   return (
     <section className="feedback-panel" aria-labelledby="feedback-heading" aria-busy={isBusy}>
@@ -44,7 +47,9 @@ function FeedbackPanel({
       />
 
       <p className="feedback-save-note">
-        可以只保存反馈，也可以提交反馈并让 AI 根据本书原文生成下一篇文章。
+        {hasSavedFeedback && feedback.trim() === ''
+          ? '当前文章已有已保存反馈，可以直接提交并生成下一篇。'
+          : '可以只保存反馈，也可以提交反馈并让 AI 根据本书原文生成下一篇文章。'}
       </p>
 
       {feedbackStatus && (
