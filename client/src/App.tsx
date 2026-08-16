@@ -4,7 +4,7 @@ import { generateNextLesson, loadArticle, loadLibrary, saveFeedback } from './ap
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
-import type { ArticleContent, LibraryEntry, ReadingPosition } from './types'
+import type { ArticleContent, GenerationState, LibraryEntry, ReadingPosition } from './types'
 
 const expandedNodesStorageKey = 'interactive-study-boox.expanded-nodes'
 const lastArticleStorageKey = 'interactive-study-boox.last-article'
@@ -177,7 +177,8 @@ function App() {
 
       setCurrentArticle(article)
       setRestoreScrollRatio(readScrollRatio(article.relativePath))
-      setFeedback('')
+      setFeedback(article.latestFeedback?.feedback ?? '')
+      pendingFeedbackSubmissionRef.current = article.latestFeedback
     } catch (error) {
       if (requestId !== latestArticleRequestRef.current) {
         return
@@ -226,8 +227,6 @@ function App() {
         return
       }
 
-      pendingFeedbackSubmissionRef.current = null
-      setFeedback('')
       setFeedbackStatus({
         kind: 'success',
         message: result.alreadySaved
@@ -251,7 +250,12 @@ function App() {
   }, [currentArticle, feedback])
 
   const handleGenerateNextLesson = useCallback(async () => {
-    if (!currentArticle || feedback.trim() === '') {
+    if (
+      !currentArticle ||
+      feedback.trim() === '' ||
+      currentArticle.nextArticleExists ||
+      currentArticle.generationInProgress
+    ) {
       return
     }
 
@@ -263,6 +267,9 @@ function App() {
     latestGenerationRequestRef.current = requestId
     pendingFeedbackSubmissionRef.current = { feedback, submissionId }
     setIsNextLessonGenerating(true)
+    setCurrentArticle((previousArticle) =>
+      previousArticle ? { ...previousArticle, generationInProgress: true } : previousArticle,
+    )
     setFeedbackStatus(null)
 
     try {
@@ -282,6 +289,11 @@ function App() {
         kind: 'success',
         message: `下一篇已生成：${result.nextArticle.fileName}。当前仍停留在这篇文章。`,
       })
+      setCurrentArticle((previousArticle) =>
+        previousArticle
+          ? { ...previousArticle, generationInProgress: false, nextArticleExists: true }
+          : previousArticle,
+      )
       setLibraryRequestVersion((previousVersion) => previousVersion + 1)
     } catch (error) {
       if (requestId !== latestGenerationRequestRef.current) {
@@ -295,9 +307,48 @@ function App() {
     } finally {
       if (requestId === latestGenerationRequestRef.current) {
         setIsNextLessonGenerating(false)
+        setCurrentArticle((previousArticle) =>
+          previousArticle ? { ...previousArticle, generationInProgress: false } : previousArticle,
+        )
       }
     }
   }, [currentArticle, feedback])
+
+  useEffect(() => {
+    if (!currentArticle?.generationInProgress) {
+      return
+    }
+
+    const articlePath = currentArticle.relativePath
+    let isCurrentRequest = true
+
+    const refreshGenerationState = async () => {
+      try {
+        const article = await loadArticle(articlePath)
+
+        if (!isCurrentRequest || article.relativePath !== articlePath) {
+          return
+        }
+
+        if (!article.generationInProgress) {
+          setCurrentArticle(article)
+          setFeedback(article.latestFeedback?.feedback ?? '')
+          pendingFeedbackSubmissionRef.current = article.latestFeedback
+        }
+      } catch {
+        // 生成状态查询失败时保留当前页面状态，下一轮继续尝试。
+      }
+    }
+
+    const timer = window.setInterval(() => {
+      void refreshGenerationState()
+    }, 1500)
+
+    return () => {
+      isCurrentRequest = false
+      window.clearInterval(timer)
+    }
+  }, [currentArticle])
 
   useEffect(() => {
     let isCurrentRequest = true
@@ -444,6 +495,13 @@ function App() {
       )
     }
 
+    const generationState: GenerationState =
+      currentArticle.generationInProgress || isNextLessonGenerating
+        ? 'in-progress'
+        : currentArticle.nextArticleExists
+          ? 'completed'
+          : 'ready'
+
     return (
       <ReaderPane
         key={currentArticle.relativePath}
@@ -455,6 +513,7 @@ function App() {
         feedbackStatus={feedbackStatus}
         isFeedbackSaving={isFeedbackSaving}
         isNextLessonGenerating={isNextLessonGenerating}
+        generationState={generationState}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}

@@ -156,10 +156,17 @@ interface ArticleSummary {
 ```ts
 interface ArticleContent extends ArticleSummary {
   markdown: string
+  latestFeedback: {
+    feedback: string
+    submissionId: string
+  } | null
+  nextArticlePath: string | null
+  nextArticleExists: boolean
+  generationInProgress: boolean
 }
 ```
 
-后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。
+后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。`latestFeedback` 用于刷新后恢复最近一次已经写入文章的反馈；`nextArticleExists` 和 `generationInProgress` 用于避免刷新后重复生成下一篇。
 
 ### 4.7 原文映射
 
@@ -202,7 +209,7 @@ interface SaveFeedbackResponse {
 
 `POST /api/feedback` 只完成安全保存，不调用 AI。这是接入生成能力前的独立最小闭环。
 
-### 4.9 提交反馈并生成下一篇（后续）
+### 4.9 提交反馈并生成下一篇
 
 ```ts
 interface GenerateNextRequest extends SaveFeedbackRequest {}
@@ -346,7 +353,11 @@ GET /api/article?path=on-going%2F维特根斯坦十讲%2F维特根斯坦十讲.m
   "title": "维特根斯坦十讲",
   "relativePath": "on-going/维特根斯坦十讲/维特根斯坦十讲.md",
   "kind": "other",
-  "markdown": "# 浏览器与服务器如何沟通\n\n正文……"
+  "markdown": "# 浏览器与服务器如何沟通\n\n正文……",
+  "latestFeedback": null,
+  "nextArticlePath": null,
+  "nextArticleExists": false,
+  "generationInProgress": false
 }
 ```
 
@@ -356,7 +367,7 @@ GET /api/article?path=on-going%2F维特根斯坦十讲%2F维特根斯坦十讲.m
 2. 后端把 API 的 `/` 路径规范化为当前系统可读取的真实路径；
 3. 规范化后的路径必须仍在当前学习库内，`../`、绝对路径等越界访问返回 `403`；
 4. 文件不存在或目标不是普通文件时返回 `404`；
-5. 成功时返回原始 Markdown 字符串、文件名、首个一级标题（没有则使用文件名）和文件类型。
+5. 成功时返回原始 Markdown 字符串、文件名、首个一级标题（没有则使用文件名）、文件类型、最近一次反馈和下一篇生成状态。
 
 ### 6.5 保存最近打开的文章和自动续读位置
 
@@ -439,7 +450,7 @@ Content-Type: application/json
 我理解了 GET 和 POST，但还不明白接口错误应该怎样处理。
 ```
 
-### 6.7 提交反馈并生成下一篇（后端已实现，前端待接入）
+### 6.7 提交反馈并生成下一篇（前后端已接入）
 
 ```http
 POST /api/learning/generate-next
@@ -499,6 +510,8 @@ AI 生成失败时，反馈仍然保留。错误响应应明确返回：
   "feedbackSaved": true
 }
 ```
+
+同一篇文章同时只能有一个生成请求。刷新页面后，如果后端仍在生成，文章读取接口会返回 `generationInProgress: true`；如果下一篇已经写入，则返回 `nextArticleExists: true`，前端不再开放生成按钮。
 
 ## 7. HTTP 状态码约定
 

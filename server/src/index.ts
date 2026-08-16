@@ -27,6 +27,15 @@ interface ArticleContent {
   relativePath: string
   kind: ArticleKind
   markdown: string
+  latestFeedback: FeedbackSnapshot | null
+  nextArticlePath: string | null
+  nextArticleExists: boolean
+  generationInProgress: boolean
+}
+
+interface FeedbackSnapshot {
+  feedback: string
+  submissionId: string
 }
 
 interface SaveFeedbackRequest {
@@ -76,6 +85,7 @@ const libraryRoot = path.resolve(process.cwd(), '../sample-library')
 const feedbackMarkerPrefix = '<!-- interactive-study-boox:feedback-submission-id='
 const feedbackMarkerSuffix = ' -->'
 const feedbackWriteLocks = new Map<string, Promise<void>>()
+const activeGenerationPaths = new Set<string>()
 
 app.use(express.json())
 
@@ -120,6 +130,44 @@ function resolveArticlePath(requestedPath: unknown): ArticlePathResolution {
 
 function getFeedbackMarker(submissionId: string) {
   return `${feedbackMarkerPrefix}${submissionId}${feedbackMarkerSuffix}`
+}
+
+function getLatestFeedback(markdown: string): FeedbackSnapshot | null {
+  const markerPattern = /<!-- interactive-study-boox:feedback-submission-id=([a-zA-Z0-9-]{8,120}) -->/g
+  let latestMatch: RegExpExecArray | null = null
+
+  for (const match of markdown.matchAll(markerPattern)) {
+    latestMatch = match
+  }
+
+  if (!latestMatch || latestMatch.index === undefined) {
+    return null
+  }
+
+  const feedback = markdown.slice(latestMatch.index + latestMatch[0].length).trim()
+
+  if (feedback === '') {
+    return null
+  }
+
+  return {
+    feedback,
+    submissionId: latestMatch[1],
+  }
+}
+
+function getNextArticlePath(relativePath: string) {
+  const fileName = path.posix.basename(relativePath)
+  const match = fileName.match(/^(\d+)(\.md)$/i)
+
+  if (!match) {
+    return null
+  }
+
+  const nextFileName = `${String(Number(match[1]) + 1).padStart(match[1].length, '0')}${match[2]}`
+  const directory = path.posix.dirname(relativePath)
+
+  return directory === '.' ? nextFileName : path.posix.join(directory, nextFileName)
 }
 
 function formatFeedbackForAppend(markdown: string, feedback: string, submissionId: string) {
@@ -414,12 +462,20 @@ app.get('/api/article', async (request, response) => {
 
     const markdown = await readFile(absolutePath, 'utf8')
     const fileName = path.basename(absolutePath)
+    const kind = getArticleKind(fileName, relativePath)
+    const nextArticlePath = kind === 'lesson' ? getNextArticlePath(relativePath) : null
     const article: ArticleContent = {
       fileName,
       title: getArticleTitle(markdown, fileName),
       relativePath,
-      kind: getArticleKind(fileName, relativePath),
+      kind,
       markdown,
+      latestFeedback: getLatestFeedback(markdown),
+      nextArticlePath,
+      nextArticleExists:
+        nextArticlePath !== null &&
+        (await isRegularFilePath(path.resolve(libraryRoot, nextArticlePath))),
+      generationInProgress: activeGenerationPaths.has(absolutePath),
     }
 
     response.json(article)
@@ -483,7 +539,19 @@ app.post('/api/learning/generate-next', async (request, response) => {
     return
   }
 
+  if (activeGenerationPaths.has(validation.request.absolutePath)) {
+    response.status(409).json({
+      error: {
+        code: 'GENERATION_IN_PROGRESS',
+        message: '当前文章正在生成下一篇，请等待当前请求完成。',
+        recoverable: true,
+      },
+    })
+    return
+  }
+
   let feedbackSaved = false
+  activeGenerationPaths.add(validation.request.absolutePath)
 
   try {
     const alreadySaved = await saveFeedbackToFile(validation.request)
@@ -596,6 +664,8 @@ app.post('/api/learning/generate-next', async (request, response) => {
       },
       feedbackSaved,
     })
+  } finally {
+    activeGenerationPaths.delete(validation.request.absolutePath)
   }
 })
 
