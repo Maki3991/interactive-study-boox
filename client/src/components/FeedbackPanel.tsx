@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import type { GenerationState } from '../types'
 
 interface FeedbackPanelProps {
   feedback: string
@@ -6,6 +7,7 @@ interface FeedbackPanelProps {
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isSaving: boolean
   isGenerating: boolean
+  generationState: GenerationState
   onFeedbackChange: (value: string) => void
   onSave: () => void | Promise<void>
   onGenerate: () => void | Promise<void>
@@ -17,12 +19,14 @@ function FeedbackPanel({
   feedbackStatus,
   isSaving,
   isGenerating,
+  generationState,
   onFeedbackChange,
   onSave,
   onGenerate,
 }: FeedbackPanelProps) {
-  const isBusy = isSaving || isGenerating
+  const isBusy = isSaving || isGenerating || generationState !== 'ready'
   const canSubmit = feedback.trim().length > 0 && !isBusy
+  const canGenerate = canSubmit && generationState === 'ready'
 
   return (
     <section className="feedback-panel" aria-labelledby="feedback-heading" aria-busy={isBusy}>
@@ -56,8 +60,14 @@ function FeedbackPanel({
         <button className="secondary-button" type="button" disabled={!canSubmit} onClick={() => void onSave()}>
           {isSaving ? '正在保存反馈……' : '只保存反馈'}
         </button>
-        <button className="primary-button" type="button" disabled={!canSubmit} onClick={() => void onGenerate()}>
-          {isGenerating ? '正在生成下一篇……' : '提交并生成下一篇'}
+        <button className="primary-button" type="button" disabled={!canGenerate} onClick={() => void onGenerate()}>
+          {isGenerating
+            ? '正在生成下一篇……'
+            : generationState === 'in-progress'
+              ? '后台正在生成下一篇……'
+              : generationState === 'completed'
+                ? '下一篇已生成'
+                : '提交并生成下一篇'}
         </button>
       </div>
     </section>

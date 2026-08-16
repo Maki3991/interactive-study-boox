@@ -39,6 +39,7 @@ export interface ReadingPosition {
 // 以下类型对应后端真实读取接口的返回数据。当前假数据类型先保留，
 // 等页面完成迁移并验证后，再决定是否删除它们。
 export type ArticleKind = 'plan' | 'lesson' | 'source' | 'other'
+export type GenerationState = 'ready' | 'in-progress' | 'completed'
 
 export type LibraryEntry = FolderNode | MarkdownFileNode
 
@@ -65,6 +66,13 @@ export interface ArticleContent {
   relativePath: string
   kind: ArticleKind
   markdown: string
+  latestFeedback: {
+    feedback: string
+    submissionId: string
+  } | null
+  nextArticlePath: string | null
+  nextArticleExists: boolean
+  generationInProgress: boolean
 }
 
 export interface SaveFeedbackRequest {
