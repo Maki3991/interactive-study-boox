@@ -227,6 +227,17 @@ function App() {
         return
       }
 
+      setCurrentArticle((previousArticle) =>
+        previousArticle
+          ? {
+              ...previousArticle,
+              latestFeedback: {
+                feedback: feedback.trim(),
+                submissionId,
+              },
+            }
+          : previousArticle,
+      )
       setFeedbackStatus({
         kind: 'success',
         message: result.alreadySaved
@@ -250,9 +261,12 @@ function App() {
   }, [currentArticle, feedback])
 
   const handleGenerateNextLesson = useCallback(async () => {
+    const savedFeedback = currentArticle?.latestFeedback?.feedback.trim() ?? ''
+    const effectiveFeedback = feedback.trim() || savedFeedback
+
     if (
       !currentArticle ||
-      feedback.trim() === '' ||
+      effectiveFeedback === '' ||
       currentArticle.nextArticleExists ||
       currentArticle.generationInProgress
     ) {
@@ -261,11 +275,15 @@ function App() {
 
     const existingSubmission = pendingFeedbackSubmissionRef.current
     const submissionId =
-      existingSubmission?.feedback === feedback ? existingSubmission.submissionId : createSubmissionId()
+      feedback.trim() === '' && currentArticle.latestFeedback
+        ? currentArticle.latestFeedback.submissionId
+        : existingSubmission?.feedback === feedback
+          ? existingSubmission.submissionId
+          : createSubmissionId()
     const requestId = latestGenerationRequestRef.current + 1
 
     latestGenerationRequestRef.current = requestId
-    pendingFeedbackSubmissionRef.current = { feedback, submissionId }
+    pendingFeedbackSubmissionRef.current = { feedback: effectiveFeedback, submissionId }
     setIsNextLessonGenerating(true)
     setCurrentArticle((previousArticle) =>
       previousArticle ? { ...previousArticle, generationInProgress: true } : previousArticle,
@@ -275,7 +293,7 @@ function App() {
     try {
       const result = await generateNextLesson({
         articlePath: currentArticle.relativePath,
-        feedback: feedback.trim(),
+        feedback: effectiveFeedback,
         submissionId,
       })
 
@@ -514,6 +532,7 @@ function App() {
         isFeedbackSaving={isFeedbackSaving}
         isNextLessonGenerating={isNextLessonGenerating}
         generationState={generationState}
+        hasSavedFeedback={Boolean(currentArticle.latestFeedback?.feedback.trim())}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}

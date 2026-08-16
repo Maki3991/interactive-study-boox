@@ -108,6 +108,7 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - 已修改 `client/src/components/LibraryTree.tsx`：使用递归组件显示后端返回的任意深度文件夹树，不再依赖静态分类和项目层级。
 - 已修改 `client/src/components/ReaderPane.tsx`：接收后端返回的 `ArticleContent.markdown`，通过 `react-markdown` 渲染为阅读文章；相对 `.md` 链接会回到现有 `handleOpenArticle()` 流程，原始 HTML 被忽略。
 - 已修改 `client/src/components/FeedbackPanel.tsx`：空反馈不可保存；保存期间禁用输入与按钮；保存成功后保留反馈，允许直接继续生成；生成完成或后台生成时显示对应状态。
+- 已补充反馈使用规则：生成按钮可以使用输入框中的新反馈，也可以在输入框为空时回退使用 Markdown 中最近一次已保存的反馈；保存按钮仍要求输入框有新内容。
 - 已实现 `POST /api/feedback`：后端复用 Markdown 路径安全校验，确认目标是学习库内的普通 `.md` 文件后，使用 `submissionId` 内部标记与同文件写入队列避免重复追加；只追加反馈，不调用 AI。
 - 已直接验证反馈接口：首次请求返回 `alreadySaved: false`，相同 `submissionId` 的重复请求返回 `alreadySaved: true` 且文件内标记只出现一次；越界路径返回 `403`。
 - 已在浏览器中验证：输入反馈后可以保存并生成下一篇；后端文章读取接口能够返回最近反馈、下一篇是否存在和是否正在生成；前端刷新恢复与生成状态仍需在新分支上完成一次浏览器回归。

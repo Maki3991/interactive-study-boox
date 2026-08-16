@@ -166,7 +166,7 @@ interface ArticleContent extends ArticleSummary {
 }
 ```
 
-后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。`latestFeedback` 用于刷新后恢复最近一次已经写入文章的反馈；`nextArticleExists` 和 `generationInProgress` 用于避免刷新后重复生成下一篇。
+后端返回原始 Markdown 字符串，前端负责渲染成阅读页面。`latestFeedback` 用于刷新后恢复最近一次已经写入文章的反馈；`nextArticleExists` 和 `generationInProgress` 用于避免刷新后重复生成下一篇。生成时优先使用输入框中的新内容；输入框为空时回退到 `latestFeedback`。
 
 ### 4.7 原文映射
 
@@ -206,6 +206,7 @@ interface SaveFeedbackResponse {
 - `submissionId`：前端为一次点击生成并在失败重试时复用的唯一字符串。
 - `alreadySaved`：首次写入时为 `false`；同一 `submissionId` 的重试已写入时为 `true`，不会再次追加内容。
 - 后端在 Markdown 中使用不可见标记 `<!-- interactive-study-boox:feedback-submission-id=<submissionId> -->` 识别同一次提交。标记紧跟在追加的“学习反馈”标题之后；阅读器忽略该 HTML 注释。
+- “只保存反馈”要求输入框有新内容；“提交反馈并生成下一篇”可以使用输入框内容，也可以在输入框为空时使用文章中最近一次已经保存的反馈。
 
 `POST /api/feedback` 只完成安全保存，不调用 AI。这是接入生成能力前的独立最小闭环。
 
