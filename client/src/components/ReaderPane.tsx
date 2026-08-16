@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react'
 import Markdown from 'react-markdown'
-import type { ArticleContent } from '../types'
+import type { ArticleContent, GenerationState } from '../types'
 import FeedbackPanel from './FeedbackPanel'
 
 interface ReaderPaneProps {
@@ -13,6 +13,7 @@ interface ReaderPaneProps {
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isFeedbackSaving: boolean
   isNextLessonGenerating: boolean
+  generationState: GenerationState
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
   onGenerateNextLesson: () => void | Promise<void>
@@ -56,6 +57,7 @@ function ReaderPane({
   feedbackStatus,
   isFeedbackSaving,
   isNextLessonGenerating,
+  generationState,
   onFeedbackChange,
   onSaveFeedback,
   onGenerateNextLesson,
@@ -202,6 +204,7 @@ function ReaderPane({
           feedbackStatus={feedbackStatus}
           isSaving={isFeedbackSaving}
           isGenerating={isNextLessonGenerating}
+          generationState={generationState}
           onFeedbackChange={onFeedbackChange}
           onSave={onSaveFeedback}
           onGenerate={onGenerateNextLesson}
