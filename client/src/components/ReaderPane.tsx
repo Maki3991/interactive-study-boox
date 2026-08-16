@@ -14,6 +14,7 @@ interface ReaderPaneProps {
   isFeedbackSaving: boolean
   isNextLessonGenerating: boolean
   generationState: GenerationState
+  hasSavedFeedback: boolean
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
   onGenerateNextLesson: () => void | Promise<void>
@@ -58,6 +59,7 @@ function ReaderPane({
   isFeedbackSaving,
   isNextLessonGenerating,
   generationState,
+  hasSavedFeedback,
   onFeedbackChange,
   onSaveFeedback,
   onGenerateNextLesson,
@@ -205,6 +207,7 @@ function ReaderPane({
           isSaving={isFeedbackSaving}
           isGenerating={isNextLessonGenerating}
           generationState={generationState}
+          hasSavedFeedback={hasSavedFeedback}
           onFeedbackChange={onFeedbackChange}
           onSave={onSaveFeedback}
           onGenerate={onGenerateNextLesson}
