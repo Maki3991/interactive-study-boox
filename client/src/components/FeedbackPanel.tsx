@@ -8,10 +8,13 @@ interface FeedbackPanelProps {
   isSaving: boolean
   isGenerating: boolean
   generationState: GenerationState
+  generationRecovery: { changedFiles: string[] } | null
+  isRollingBack: boolean
   hasSavedFeedback: boolean
   onFeedbackChange: (value: string) => void
   onSave: () => void | Promise<void>
   onGenerate: () => void | Promise<void>
+  onRollback: () => void | Promise<void>
 }
 
 function FeedbackPanel({
@@ -21,10 +24,13 @@ function FeedbackPanel({
   isSaving,
   isGenerating,
   generationState,
+  generationRecovery,
+  isRollingBack,
   hasSavedFeedback,
   onFeedbackChange,
   onSave,
   onGenerate,
+  onRollback,
 }: FeedbackPanelProps) {
   const isBusy = isSaving || isGenerating || generationState !== 'ready'
   const canSubmit = feedback.trim().length > 0 && !isBusy
@@ -75,6 +81,20 @@ function FeedbackPanel({
                 : '提交并生成下一篇'}
         </button>
       </div>
+
+      {generationRecovery && generationState === 'completed' && (
+        <div className="feedback-status feedback-recovery" role="status">
+          <p>本次生成修改了：{generationRecovery.changedFiles.join('、')}</p>
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={isRollingBack}
+            onClick={() => void onRollback()}
+          >
+            {isRollingBack ? '正在撤销本次生成……' : '撤销本次生成'}
+          </button>
+        </div>
+      )}
     </section>
   )
 }
