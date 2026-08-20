@@ -14,10 +14,13 @@ interface ReaderPaneProps {
   isFeedbackSaving: boolean
   isNextLessonGenerating: boolean
   generationState: GenerationState
+  generationRecovery: { changedFiles: string[] } | null
+  isRollingBack: boolean
   hasSavedFeedback: boolean
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
   onGenerateNextLesson: () => void | Promise<void>
+  onRollback: () => void | Promise<void>
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
   onOpenArticle: (articlePath: string) => void | Promise<void>
@@ -59,10 +62,13 @@ function ReaderPane({
   isFeedbackSaving,
   isNextLessonGenerating,
   generationState,
+  generationRecovery,
+  isRollingBack,
   hasSavedFeedback,
   onFeedbackChange,
   onSaveFeedback,
   onGenerateNextLesson,
+  onRollback,
   onReadingPositionChange,
   onReaderMenuGesture,
   onOpenArticle,
@@ -207,10 +213,13 @@ function ReaderPane({
           isSaving={isFeedbackSaving}
           isGenerating={isNextLessonGenerating}
           generationState={generationState}
+          generationRecovery={generationRecovery}
+          isRollingBack={isRollingBack}
           hasSavedFeedback={hasSavedFeedback}
           onFeedbackChange={onFeedbackChange}
           onSave={onSaveFeedback}
           onGenerate={onGenerateNextLesson}
+          onRollback={onRollback}
         />
       </div>
     </section>

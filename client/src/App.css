@@ -491,6 +491,11 @@
   line-height: 1.5;
 }
 
+.feedback-recovery {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
 .feedback-error {
   border-left-color: #6a3434;
 }

@@ -98,6 +98,15 @@ export interface GeneratedArticleSummary {
 export interface GenerateNextLessonResponse {
   feedbackSaved: true
   alreadySaved: boolean
+  operationId: string
+  changedFiles: string[]
   currentArticlePath: string
   nextArticle: GeneratedArticleSummary
+}
+
+export interface RollbackGenerationResponse {
+  operationId: string
+  status: 'rolled-back'
+  rolledBackFiles: string[]
+  feedbackKept: boolean
 }
