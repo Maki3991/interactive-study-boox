@@ -1,12 +1,12 @@
 # Data Model and API
 
-> 版本：v0.5
-> 更新日期：2026-08-20
-> 当前状态：AI 生成链已接入写入操作记录、生成前快照、原子文件写入和手动回滚；完整失败场景仍需在真实局域网环境回归
+> 版本：v0.6
+> 更新日期：2026-08-21
+> 当前状态：P0/P0.1 数据与 API 已完成核心实现；P1 远程工作区和手动 GitHub 同步接口暂定
 
 ## 1. 文档目的
 
-本文档定义电脑端 Web Prototype（P0）中：
+本文档定义电脑端 Web Prototype（P0）以及后续远程模式（P1）中：
 
 - 应用里有哪些数据；
 - 数据保存在哪里；
@@ -14,7 +14,7 @@
 - 每个 API 接收什么、返回什么；
 - 文件读写必须遵守哪些边界。
 
-本文档不是数据库表设计。P0 不使用数据库，Markdown 文件和文件夹是学习内容的主要真源。
+本文档不是数据库表设计。P0/P1 暂不使用数据库：Markdown 文件和文件夹是学习内容的主要真源，GitHub 私有仓库只保存用户主动同步后的版本历史，Git 状态用于计算未同步和冲突信息。
 
 ## 2. 数据保存位置
 
@@ -27,7 +27,7 @@
 | 原文映射 | `00-学习计划.md` | 每篇学习文章对应的一个或多个原文文件 |
 | 用户反馈 | 当前文章末尾 | 不单独创建反馈数据库或文件夹 |
 | 学习库目录树 | 文件夹结构 | 保留用户真实的文件夹层级；只把 `.md` 文件作为可阅读文章返回 |
-| 学习库路径 | 本地 JSON 配置 | 只由后端读取和修改 |
+| 学习库工作区路径 | P0 本地 JSON 配置；P1 VPS 环境变量或服务端配置 | 只由后端读取和修改，绝对路径不返回给客户端 |
 | 上次打开的文章 | 本地 JSON 配置 | 保存相对于学习库的路径 |
 | 自动续读位置 | 本地 JSON 配置 | 保存上次打开文章的滚动比例，不对用户显示进度 |
 | 当前输入框内容 | React 页面内存 | 未提交前不写入文件 |
@@ -35,6 +35,9 @@
 | AI 生成结果 | 下一篇 Markdown | 成功生成后直接写入项目文件夹 |
 | 生成操作记录 | `server/.interactive-study-boox/operations/` | 保存每次生成的阶段、文件哈希、备份位置和错误信息；已加入 Git 忽略 |
 | 学习计划生成前快照 | `server/.interactive-study-boox/operations/<operationId>/backup/` | 只在回滚时使用，不作为学习库内容；保留策略暂定 |
+| GitHub 私有学习库 | `learn-everything` | P1 的长期版本历史；只在用户主动同步时产生 commit |
+| Git 同步状态 | VPS 工作区的 Git 状态 | P1 动态计算未同步文件、ahead/behind 和冲突，不单独建立数据库表 |
+| OpenAI/GitHub 凭据 | VPS 密钥或环境变量 | 不进入 Markdown、Git commit、API 响应或客户端 |
 
 ## 3. 学习库文件模型
 
@@ -66,7 +69,7 @@
 
 ### 3.2 路径规则
 
-- `libraryPath` 是学习库在当前电脑上的绝对路径，只保存在后端配置中。
+- `libraryPath` 表示后端当前使用的学习工作区绝对路径：P0 是电脑上的本地文件夹，P1 暂定是 VPS 上私有仓库的 clone；它只保存在后端配置中。
 - 前端和 API 只传相对于学习库的 `relativePath`。
 - API 中的相对路径统一使用 `/`，例如 `on-going/维特根斯坦十讲/维特根斯坦十讲.md`。
 - 后端负责把相对路径转换为当前系统的真实路径。
@@ -74,6 +77,8 @@
 - P0 的文章读取和写入只接受 `.md` 文件。
 - `sources/` 下的 Markdown 可以读取，生成流程不能改写或覆盖其中的文件。
 - AI 生成的学习文章写入项目根目录的编号文件，例如 `01.md`、`02.md`。
+- P1 的 `libraryPath` 不返回给手机或 BOOX；客户端只处理相对路径。
+- P1 的同步服务只允许暂存学习内容范围内的文件，明确排除密钥、依赖、构建产物和运行时记录。
 
 相对路径同时充当 P0 的资源标识，不额外生成数据库数字 ID。
 
@@ -93,6 +98,9 @@ interface AppConfig {
   libraryPath: string | null
   lastOpenedArticlePath: string | null
   lastReadingPosition: LastReadingPosition | null
+  storageMode?: 'local' | 'git-worktree'
+  syncEnabled?: boolean
+  syncBranch?: string | null
 }
 ```
 
@@ -102,6 +110,7 @@ interface AppConfig {
 - `lastReadingPosition.scrollRatio`：文章可滚动范围中的位置，取值在 `0` 到 `1` 之间；只用于恢复阅读位置，不显示为百分比进度。
 - 未选择学习库或没有打开过文章时使用 `null`。
 - 包含绝对路径的本地配置文件不能提交到 GitHub。
+- `storageMode`、`syncEnabled` 和 `syncBranch` 是 P1 暂定字段；它们不包含 GitHub Token、SSH 私钥或其他凭据。
 
 ### 4.2 学习库树
 
@@ -296,7 +305,43 @@ interface ApiErrorResponse {
 - `recoverable`：是否适合直接重试。
 - `feedbackSaved`：生成失败时告诉前端反馈是否已经安全保存。
 
-## 5. P0 API 总览
+### 4.12 P1 Git 同步状态与请求（暂定）
+
+Git 同步状态由 VPS 工作区的 Git 命令动态计算，不写入 SQL 数据库：
+
+```ts
+type SyncState = 'disabled' | 'clean' | 'pending' | 'conflict' | 'offline'
+
+interface SyncStatus {
+  state: SyncState
+  repositoryName: string | null
+  branch: string | null
+  changedFiles: string[]
+  ahead: number
+  behind: number
+  conflictFiles: string[]
+  lastSyncedCommit: string | null
+}
+
+interface SyncPushRequest {
+  message?: string
+}
+
+interface SyncPushResponse {
+  state: 'clean'
+  commitHash: string
+  commitMessage: string
+  syncedFiles: string[]
+  syncedAt: string
+}
+```
+
+- `changedFiles` 和 `syncedFiles` 使用学习工作区根目录下的相对路径。
+- P1 首版只同步允许范围内的 Markdown 学习内容，不允许请求体指定任意服务器路径。
+- `ahead > 0` 或 `behind > 0` 的具体处理仍需在实现前确认；默认不强制覆盖远程分支。
+- 同一次 `sync/push` 请求可以包含多个文件，但只创建一个 Git commit。
+
+## 5. API 总览（P0 已实现，P1 暂定）
 
 | 用户动作 | 方法 | 路径 | 后端职责 |
 | --- | --- | --- | --- |
@@ -310,6 +355,8 @@ interface ApiErrorResponse {
 | 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、记录操作、创建文章并更新计划 |
 | 查询生成操作 | `GET` | `/api/learning/operations/:operationId` | 返回操作阶段、文件哈希、错误和恢复信息 |
 | 回滚一次已写入生成 | `POST` | `/api/learning/operations/:operationId/rollback` | 校验文件未被外部修改后恢复计划并删除本次新建文章 |
+| 查看 Git 同步状态（P1 暂定） | `GET` | `/api/sync/status` | 返回未同步文件、分支、远程领先和冲突状态 |
+| 手动同步到 GitHub（P1 暂定） | `POST` | `/api/sync/push` | 一次性提交允许范围内的修改并推送到私有仓库 |
 
 ## 6. API 详细约定
 
@@ -594,6 +641,74 @@ POST /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc/rollback
 
 后端只允许回滚具有足够快照和写入记录的操作：如果学习计划已经写成生成后的版本，就检查两个文件的写入后哈希并恢复学习计划；如果学习计划仍保持原版本，则只删除本次确认新建的下一篇。如果用户已经手动编辑其中任一文件，接口返回 `409 ROLLBACK_CONFLICT`，不会强行覆盖用户的新修改。回滚成功时返回 `feedbackKept: true`；当前文章里已经保存的反馈始终保留。
 
+### 6.9 查看 Git 同步状态（P1 暂定）
+
+```http
+GET /api/sync/status
+```
+
+成功响应：`200 OK`
+
+```json
+{
+  "state": "pending",
+  "repositoryName": "learn-everything",
+  "branch": "main",
+  "changedFiles": [
+    "yet-to-start/AI Write Safety Test/03.md",
+    "yet-to-start/AI Write Safety Test/04.md"
+  ],
+  "ahead": 0,
+  "behind": 0,
+  "conflictFiles": [],
+  "lastSyncedCommit": "abc123..."
+}
+```
+
+后端从 VPS 工作区执行只读 Git 检查，不能把绝对路径、远程 URL 中的凭据或服务器环境变量返回给客户端。没有修改时 `state` 为 `clean`；工作区、远程或网络不可用时分别返回 `conflict` 或 `offline`。
+
+### 6.10 手动同步到 GitHub（P1 暂定）
+
+```http
+POST /api/sync/push
+Content-Type: application/json
+```
+
+请求：
+
+```json
+{
+  "message": "study: sync learning notes"
+}
+```
+
+后端处理顺序：
+
+1. 确认 Git 同步已启用，工作区是预期的私有仓库。
+2. 检查当前分支、工作区和远程分支状态；远程领先或存在冲突时返回 `409`，不执行强制覆盖。
+3. 只把允许同步的学习 Markdown 文件加入暂存区，排除 `.env`、依赖、构建产物和运行时记录。
+4. 如果没有文件变化，返回当前 `clean` 状态，不创建空 commit。
+5. 使用一次 `git commit` 将本次所有修改合并为一个 commit。
+6. 使用一次 `git push` 推送到私有 `learn-everything` 仓库。
+7. 返回 commit 哈希、同步文件和新的同步状态。
+
+成功响应：`200 OK`
+
+```json
+{
+  "state": "clean",
+  "commitHash": "abc123...",
+  "commitMessage": "study: sync learning notes",
+  "syncedFiles": [
+    "yet-to-start/AI Write Safety Test/03.md",
+    "yet-to-start/AI Write Safety Test/04.md"
+  ],
+  "syncedAt": "2026-08-21T12:00:00.000Z"
+}
+```
+
+P1 首版不提供客户端直接调用 GitHub Contents API 的路径，也不自动为每个文件创建 commit。远程仓库的手动编辑、拉取和复杂冲突解决可以在同步闭环稳定后再增加。
+
 ## 7. HTTP 状态码约定
 
 | 状态码 | 使用场景 |
@@ -603,10 +718,11 @@ POST /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc/rollback
 | `400` | 请求字段缺失或格式错误 |
 | `403` | 请求试图读取学习库之外的文件 |
 | `404` | 学习项目或文章不存在 |
-| `409` | 下一篇文件已存在、同一文章正在生成、回滚时文件已被修改或操作尚未具备完整恢复信息 |
+| `409` | 下一篇文件已存在、同一文章正在生成、回滚时文件已被修改、操作尚未具备完整恢复信息，或 Git 远程领先/存在同步冲突 |
 | `422` | 文件存在，但不满足生成条件，例如缺少学习计划 |
 | `500` | 本地文件读取或写入失败，或生成结果写入状态需要通过操作记录恢复 |
 | `502` | AI 服务调用失败 |
+| `503` | P1 VPS 无法访问 GitHub、Git 凭据无效或远程同步暂时不可用 |
 
 生成前缺少原文映射、原文文件不存在或映射不在 `sources/` 时，使用 `422`，不调用 OpenAI。
 
@@ -645,7 +761,7 @@ POST /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc/rollback
 
 这些是计划名称；实际文件和函数创建后，以代码为准并回写本文档。
 
-## 9. P0 数据边界
+## 9. P0/P1 数据边界
 
 P0 不定义以下数据：
 
@@ -655,12 +771,11 @@ P0 不定义以下数据：
 - 阅读时长；
 - 学习统计；
 - 中途问答记录；
-- 多设备同步记录；
 - 数据库 ID 和数据库表。
 
 P0 可以保存一个最近打开文章的自动续读位置；它只是本机恢复阅读所需的 UI 偏好，不构成阅读进度、阅读统计或跨设备同步记录。
 
-当出现阅读统计、多设备同步、冲突处理或大量查询需求时，再重新评估是否引入数据库。
+P1 的同步状态、ahead/behind 数量和 Git commit 元数据由 VPS 工作区动态计算，不单独建立数据库表。只有在出现多用户账号、阅读统计、大量结构化查询或复杂的同步任务队列时，才重新评估是否引入数据库。
 
 ## 10. 尚未确认
 
@@ -668,3 +783,4 @@ P0 可以保存一个最近打开文章的自动续读位置；它只是本机�
 - 遇到不规范文章文件名时如何计算下一篇编号。
 - 原文映射是否细化到 Markdown 标题或小节。
 - 学习库使用系统文件夹选择器还是先手动填写路径。
+- P1 的 VPS 访问鉴权、Git 凭据形式和远程领先时的拉取/冲突解决流程。
