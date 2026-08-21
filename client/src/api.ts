@@ -2,6 +2,7 @@ import type {
   ArticleContent,
   GenerateNextLessonResponse,
   LibraryResponse,
+  RollbackGenerationResponse,
   SaveFeedbackRequest,
   SaveFeedbackResponse,
 } from './types'
@@ -53,4 +54,11 @@ export function generateNextLesson(request: SaveFeedbackRequest) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   })
+}
+
+export function rollbackGeneration(operationId: string) {
+  return requestJson<RollbackGenerationResponse>(
+    `/learning/operations/${encodeURIComponent(operationId)}/rollback`,
+    { method: 'POST' },
+  )
 }
