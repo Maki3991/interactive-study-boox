@@ -1,8 +1,8 @@
 # Architecture
 
-> 版本：v0.5
-> 更新日期：2026-08-20
-> 当前状态：真实 Markdown 阅读、反馈保存、AI 生成和写入安全记录已实现；正在回归测试失败恢复、回滚和服务重启状态
+> 版本：v0.6
+> 更新日期：2026-08-21
+> 当前状态：P0/P0.1 已完成；P1 VPS 远程访问、私有学习库与手动 GitHub 同步方案暂定
 
 ## 1. 开发阶段
 
@@ -16,23 +16,43 @@
 
 P0 在本机运行，不要求远程服务器，也不要求安装到 BOOX Leaf 5。
 
-### P1：BOOX Leaf 5 可用版本
+### P1：VPS 远程访问与手动 GitHub 同步（暂定）
 
-P0 验证完成后，再决定电脑与 BOOX 之间的同步方式、远程访问方式和 Android APK 包装方案。
+P0 验证完成后，先把后端部署到具有持久化磁盘的 VPS：
 
-## 2. 已确认技术栈
+```text
+手机 / BOOX / 电脑浏览器
+          ↓ HTTPS API
+      VPS Express 后端
+          ↓
+  VPS 上 learn-everything 的 Git 工作副本
+          ↓ 用户点击同步
+  GitHub 私有 learn-everything 仓库
+```
+
+P1 使用现有阅读、反馈和 AI 生成链路；新增的是可配置工作区、Git 状态查询和手动同步。客户端不直接访问 GitHub，也不保存 OpenAI API Key 或 GitHub 凭据。
+
+### P2：Android APK
+
+P2 再评估把访问远程 API 的 Web 客户端封装成 Android APK，具体采用 WebView、Capacitor 或其他技术仍待确认。
+
+## 2. 技术栈与运行方案
+
+P0 的技术栈已经确认；P1 的 VPS、Git 同步和访问控制仍标记为暂定方案。
 
 - 前端：React + Vite + TypeScript
 - 后端：Node.js + Express + TypeScript
 - 包管理器：npm
-- 学习内容：本地 Markdown 文件
+- 学习内容：P0 本地 Markdown 文件；P1 VPS 上私有仓库工作副本中的 Markdown 文件
 - 文件读写：Node.js 文件系统 API
 - 简单应用状态：JSON 配置文件
-- 数据库：P0 不使用数据库
+- 版本同步：P1 暂定使用 VPS 上的 Git CLI，用户主动同步时一次性 commit 并 push
+- 数据库：P0/P1 暂不使用数据库
 - AI：后端通过 OpenAI API 调用；密钥保存在服务端 `.env`，模型由 `OPENAI_MODEL` 配置，默认使用 `gpt-5`
-- BOOX App：P0 完成后再评估 Android WebView 或其他包装方案
+- 远程访问：P1 暂定通过 HTTPS 暴露后端；访问鉴权方式仍待确认
+- BOOX App：P2 再评估 Android WebView 或其他包装方案
 
-## 3. 第一阶段架构边界
+## 3. P0 架构边界
 
 - Markdown 文件是学习内容的主要真源。
 - 书籍项目将原始材料放在 `sources/`，将原文索引、学习计划和生成文章放在项目根目录。
@@ -48,19 +68,34 @@ P0 验证完成后，再决定电脑与 BOOX 之间的同步方式、远程访�
 - 不在每次请求中发送整本书，不引入向量数据库或复杂全文检索。
 - 最近打开的文章、自动续读位置和学习库路径可以保存在简单配置文件中。
 
+### 3.1 P1 远程工作区边界（暂定）
+
+- P0 的本地学习库和 P1 的 VPS 工作区使用同一套文件读写逻辑，只通过配置切换根路径。
+- P1 的活动工作区暂定为 VPS 上 `learn-everything` 的 clone；未同步的修改保存在 VPS 持久化磁盘。
+- GitHub 私有仓库保存已经同步的学习资料版本；VPS 工作区可能暂时领先于 GitHub。
+- 用户点击同步后，后端使用 Git CLI 把允许同步的 Markdown 修改合并为一个 commit 并 push，不为每个文件单独提交。
+- 客户端只调用 VPS API；GitHub Token、SSH 凭据和 OpenAI API Key 只存在 VPS 的密钥或环境变量中。
+- 同步范围默认排除 `.env`、`node_modules/`、构建产物和 `server/.interactive-study-boox/` 运行时记录。
+- 远程仓库领先、工作区存在冲突或 push 失败时不执行强制覆盖；先返回状态供页面处理。
+- P1 不因为 Git 版本历史而引入 SQL 数据库；数据库只有在多用户、统计、复杂查询或更复杂同步需求出现时重新评估。
+
 ## 4. 计划中的代码职责
 
 ```text
-浏览器中的 React 页面
-  ↓ HTTP 请求
-本机 Express 后端
+浏览器 / 手机 / BOOX 上的 React 页面
+  ↓ /api HTTP 请求
+P0 本机 Express 或 P1 VPS Express 后端
   ↓
-读取或写入用户指定的 Markdown 学习库
+读取或写入配置的 Markdown 学习工作区
   ↓
-需要生成下一篇时调用 AI 服务
+需要生成下一篇时调用 OpenAI
+  ↓
+P1 用户主动点击同步时调用 VPS Git CLI
+  ↓
+推送到私有 learn-everything 仓库
 ```
 
-生成上下文由后端从本地文件组装：固定学习规则、学习计划、当前文章、用户反馈和计划映射的 `sources/` 原始材料。前端只提交当前文章路径、反馈和提交标识。
+生成上下文由后端从配置的工作区组装：固定学习规则、学习计划、当前文章、用户反馈和计划映射的 `sources/` 原始材料。前端只提交当前文章路径、反馈和提交标识；P1 的同步凭据不会下发到前端。
 
 计划按前后端职责组织代码：
 
@@ -176,6 +211,28 @@ Express 校验学习库边界和请求字段
 生成 01.md
 ```
 
+### 5.6 P1 手动同步到 GitHub（暂定）
+
+```text
+用户点击“同步到 GitHub”
+  ↓
+前端请求 GET /api/sync/status（可选，先展示待同步文件）
+  ↓
+前端请求 POST /api/sync/push
+  ↓
+后端检查工作区、当前分支和远程是否领先
+  ↓
+只暂存允许同步的学习 Markdown 文件
+  ↓
+一次 git commit，包含本次所有修改
+  ↓
+一次 git push 到私有 learn-everything 仓库
+  ↓
+返回 commit、同步文件和下一次状态
+```
+
+同步按钮不是逐文件上传接口。P1 暂定以 VPS 本地 clone 加 Git CLI 实现，便于一次操作产生一个有意义的 commit；如果远程领先或检测到冲突，后端返回 `409`，不执行强制 push。远程手动编辑、拉取策略和冲突解决界面留待后续确认。
+
 ## 6. 当前电脑开发环境
 
 已经确认安装：
@@ -191,11 +248,15 @@ P0 不需要安装 SQLite、Android SDK、ADB 或全局 Gradle。
 
 React、Vite、TypeScript、Express 等属于项目依赖，应在初始化代码项目时安装到项目目录，不进行全局安装。
 
+P1 还需要一台具有持久化磁盘的 Linux VPS、Node.js、Git 和安全的服务端密钥配置；VPS 尚未部署，具体供应商和运行方式待本地同步原型验证后再决定。
+
 ## 7. 后续待确认
 
 - 生成提示词的最终文本和原文映射是否细化到 Markdown 标题。
 - 不规范文章文件名的下一篇编号规则。
-- 电脑学习库与 BOOX Leaf 5 的同步方式。
-- BOOX 访问本地文件还是访问远程 API。
-- Android APK 的具体包装技术。
+- `LIBRARY_ROOT` 与私有 `learn-everything` 工作副本的配置接口和更换策略。
+- `GET /api/sync/status`、`POST /api/sync/push` 的具体响应字段和允许同步的文件范围。
+- GitHub 远程领先时采用手动拉取、只允许快进，还是增加冲突解决界面。
+- VPS 远程访问采用公开 HTTPS、VPN、一次性访问码还是反向代理鉴权。
+- Android APK 的具体包装技术，以及生产环境 API 地址配置。
 - Leaf 5 真机上的 Markdown 渲染和输入法兼容性。
