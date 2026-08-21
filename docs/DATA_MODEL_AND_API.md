@@ -1,8 +1,8 @@
 # Data Model and API
 
-> 版本：v0.4
-> 更新日期：2026-08-15
-> 当前状态：书籍学习模式已确认；AI 上下文读取和生成接口已实现，前端接入与实际生成验证待完成
+> 版本：v0.5
+> 更新日期：2026-08-20
+> 当前状态：AI 生成链已接入写入操作记录、生成前快照、原子文件写入和手动回滚；完整失败场景仍需在真实局域网环境回归
 
 ## 1. 文档目的
 
@@ -31,7 +31,10 @@
 | 上次打开的文章 | 本地 JSON 配置 | 保存相对于学习库的路径 |
 | 自动续读位置 | 本地 JSON 配置 | 保存上次打开文章的滚动比例，不对用户显示进度 |
 | 当前输入框内容 | React 页面内存 | 未提交前不写入文件 |
+| 最近一次可回滚生成 | 浏览器 `localStorage` | 只保存当前文章对应的 `operationId` 和修改文件摘要；真实状态仍以服务端操作记录为准 |
 | AI 生成结果 | 下一篇 Markdown | 成功生成后直接写入项目文件夹 |
+| 生成操作记录 | `server/.interactive-study-boox/operations/` | 保存每次生成的阶段、文件哈希、备份位置和错误信息；已加入 Git 忽略 |
+| 学习计划生成前快照 | `server/.interactive-study-boox/operations/<operationId>/backup/` | 只在回滚时使用，不作为学习库内容；保留策略暂定 |
 
 ## 3. 学习库文件模型
 
@@ -218,14 +221,64 @@ interface GenerateNextRequest extends SaveFeedbackRequest {}
 interface GenerateNextResponse {
   feedbackSaved: boolean
   currentArticlePath: string
+  operationId: string
+  changedFiles: string[]
   nextArticle: ArticleSummary
 }
 ```
 
 - 后端从 `articlePath` 推导当前项目，不允许前端另传一个可能冲突的项目路径。
 - 前端不提交原文内容或 `sourceRefs`；后端从 `00-学习计划.md` 读取映射并在本地加载 `sources/` 文件。
+- `operationId` 是这次生成的持久化操作记录标识，可用于查询状态或发起回滚。
+- `changedFiles` 是本次成功写入的相对路径；当前通常包含新建的下一篇文章和被更新的学习计划。
 
-### 4.10 统一错误格式
+### 4.10 生成操作记录
+
+```ts
+type GenerationOperationStatus =
+  | 'preparing'
+  | 'feedback-saved'
+  | 'snapshot-created'
+  | 'ai-generated'
+  | 'next-article-writing'
+  | 'next-article-written'
+  | 'plan-writing'
+  | 'plan-written'
+  | 'committed'
+  | 'failed'
+  | 'interrupted'
+  | 'rolled-back'
+
+interface GenerationOperation {
+  operationId: string
+  status: GenerationOperationStatus
+  currentArticlePath: string
+  nextArticlePath: string | null
+  planPath: string | null
+  feedbackSubmissionId: string
+  feedbackSaved: boolean
+  changedFiles: string[]
+  nextArticle: {
+    relativePath: string
+    beforeHash?: string
+    afterHash?: string
+    createdByOperation?: boolean
+  } | null
+  plan: {
+    relativePath: string
+    beforeHash?: string
+    afterHash?: string
+    backupRelativePath?: string
+  } | null
+  createdAt: string
+  updatedAt: string
+  error?: { code: string; message: string }
+}
+```
+
+操作记录不是学习内容数据库。它用于回答三个安全问题：这次操作走到了哪一步、哪些文件可能已经改变、回滚前文件是否仍然是本次操作写出的版本。服务启动时，未进入终态的旧记录会标记为 `interrupted`，不会自动覆盖或删除学习文件。
+
+### 4.11 统一错误格式
 
 ```ts
 interface ApiErrorResponse {
@@ -254,7 +307,9 @@ interface ApiErrorResponse {
 | 预览学习上下文（开发检查） | `GET` | `/api/learning/context-preview?path=...` | 检查计划、当前文章和映射原文是否能被找到，不调用 AI |
 | 保存最近打开文章和续读位置 | `PUT` | `/api/config/last-opened` | 更新本地配置 |
 | 保存反馈（当前实现） | `POST` | `/api/feedback` | 校验、去重并追加反馈到当前文章 |
-| 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、创建文章 |
+| 提交反馈并生成下一篇 | `POST` | `/api/learning/generate-next` | 追加反馈、调用 AI、记录操作、创建文章并更新计划 |
+| 查询生成操作 | `GET` | `/api/learning/operations/:operationId` | 返回操作阶段、文件哈希、错误和恢复信息 |
+| 回滚一次已写入生成 | `POST` | `/api/learning/operations/:operationId/rollback` | 校验文件未被外部修改后恢复计划并删除本次新建文章 |
 
 ## 6. API 详细约定
 
@@ -471,24 +526,29 @@ Content-Type: application/json
 后端处理顺序：
 
 1. 校验文章路径和反馈内容；
-2. 根据 `articlePath` 找到项目目录；
-3. 检查 `00-学习计划.md`；
-4. 使用 `submissionId` 判断反馈是否已经写入；
-5. 尚未写入时，把反馈追加到当前文章末尾；
-6. 从学习计划读取当前文章和下一篇的原文映射；
-7. 校验映射路径位于项目的 `sources/` 内，并读取对应原文；
-8. 组装固定学习规则、学习计划、当前文章、反馈和原文上下文；
-9. 调用 OpenAI，并校验返回的 Markdown 结构；
-10. 计算下一篇文章文件名；
-11. 确认不会覆盖已有文件后创建新 Markdown；
-12. 更新学习计划中的进度、反馈摘要和原文映射；
-13. 返回新文章摘要。
+2. 创建持久化 `operationId`，后续每一步更新操作阶段；
+3. 使用 `submissionId` 判断反馈是否已经写入；尚未写入时以原子方式追加到当前文章末尾；
+4. 根据 `articlePath` 找到项目目录并检查 `00-学习计划.md`；
+5. 从学习计划读取当前文章和下一篇的原文映射；
+6. 校验映射路径位于项目的 `sources/` 内，并读取对应原文；
+7. 确认下一篇文件不存在；
+8. 保存学习计划的生成前快照；
+9. 组装固定学习规则、学习计划、当前文章、反馈和原文上下文；
+10. 调用 OpenAI，并校验返回的 Markdown 结构；
+11. 先写入临时文件，再原子重命名创建下一篇 Markdown；
+12. 以原子方式更新学习计划，记录写入后的 SHA-256 哈希；
+13. 两个目标文件都确认写入后，将操作标记为 `committed` 并返回修改摘要。
 
 成功响应：`201 Created`
 
 ```json
 {
   "feedbackSaved": true,
+  "operationId": "0f7a1b2c-3d4e-4f56-8a90-123456789abc",
+  "changedFiles": [
+    "on-going/示例项目/02.md",
+    "on-going/示例项目/00-学习计划.md"
+  ],
   "currentArticlePath": "on-going/示例项目/01.md",
   "nextArticle": {
     "fileName": "02.md",
@@ -512,7 +572,27 @@ AI 生成失败时，反馈仍然保留。错误响应应明确返回：
 }
 ```
 
+生成前快照只保护学习计划，反馈本身不会在回滚时被删除；这是为了保留用户已经提交的学习记录。每个文件使用临时文件加重命名的方式写入，避免写入中断留下半截 Markdown。两个文件不是数据库式的一次性事务，因此服务停止或日志写入失败时，操作记录可能处于 `failed` 或 `interrupted`；只要记录中有完整的写入后哈希，就仍可尝试手动回滚。
+
 同一篇文章同时只能有一个生成请求。刷新页面后，如果后端仍在生成，文章读取接口会返回 `generationInProgress: true`；如果下一篇已经写入，则返回 `nextArticleExists: true`，前端不再开放生成按钮。
+
+### 6.8 查询和回滚生成操作
+
+查询操作：
+
+```http
+GET /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc
+```
+
+成功时返回完整的 `GenerationOperation`。其中 `status` 可用于判断生成停在哪一步，`error` 用于展示失败原因，`beforeHash`/`afterHash` 用于回滚前确认文件没有被其他操作修改。
+
+回滚操作：
+
+```http
+POST /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc/rollback
+```
+
+后端只允许回滚具有足够快照和写入记录的操作：如果学习计划已经写成生成后的版本，就检查两个文件的写入后哈希并恢复学习计划；如果学习计划仍保持原版本，则只删除本次确认新建的下一篇。如果用户已经手动编辑其中任一文件，接口返回 `409 ROLLBACK_CONFLICT`，不会强行覆盖用户的新修改。回滚成功时返回 `feedbackKept: true`；当前文章里已经保存的反馈始终保留。
 
 ## 7. HTTP 状态码约定
 
@@ -523,9 +603,9 @@ AI 生成失败时，反馈仍然保留。错误响应应明确返回：
 | `400` | 请求字段缺失或格式错误 |
 | `403` | 请求试图读取学习库之外的文件 |
 | `404` | 学习项目或文章不存在 |
-| `409` | 下一篇文件已存在，继续写入会产生冲突 |
+| `409` | 下一篇文件已存在、同一文章正在生成、回滚时文件已被修改或操作尚未具备完整恢复信息 |
 | `422` | 文件存在，但不满足生成条件，例如缺少学习计划 |
-| `500` | 本地文件读取或写入失败 |
+| `500` | 本地文件读取或写入失败，或生成结果写入状态需要通过操作记录恢复 |
 | `502` | AI 服务调用失败 |
 
 生成前缺少原文映射、原文文件不存在或映射不在 `sources/` 时，使用 `422`，不调用 OpenAI。

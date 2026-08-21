@@ -1,9 +1,19 @@
 import express from 'express'
-import { appendFile, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { generateText } from './ai.js'
 import { buildNextLessonPrompt } from './generationPrompt.js'
 import { buildLearningContext, LearningContextError } from './learningContext.js'
+import {
+  GenerationOperation,
+  GenerationOperationStore,
+  WriteSafetyConflictError,
+  createFileAtomically,
+  hashFile,
+  hashText,
+  isValidOperationId,
+  writeFileAtomically,
+} from './writeSafety.js'
 
 type LibraryEntry = FolderNode | MarkdownFileNode
 type ArticleKind = 'plan' | 'lesson' | 'source' | 'other'
@@ -82,12 +92,19 @@ const app = express()
 const port = 3001
 // 开发期固定读取项目根目录下的测试学习库；以后会改为用户选择并保存的路径。
 const libraryRoot = path.resolve(process.cwd(), '../sample-library')
+const writeSafetyRoot = path.resolve(process.cwd(), '.interactive-study-boox')
 const feedbackMarkerPrefix = '<!-- interactive-study-boox:feedback-submission-id='
 const feedbackMarkerSuffix = ' -->'
 const feedbackWriteLocks = new Map<string, Promise<void>>()
 const activeGenerationPaths = new Set<string>()
+const activeRollbackOperationIds = new Set<string>()
+const generationOperationStore = new GenerationOperationStore(writeSafetyRoot)
 
 app.use(express.json())
+
+const generationStoreReady = generationOperationStore.markInterrupted().catch((error) => {
+  console.error('Failed to recover interrupted generation operations:', error)
+})
 
 function makeRelativePath(parentPath: string, name: string) {
   return parentPath ? `${parentPath}/${name}` : name
@@ -243,10 +260,10 @@ async function saveFeedbackToFile(request: ValidatedFeedbackRequest) {
       return true
     }
 
-    await appendFile(
+    await writeFileAtomically(
       request.absolutePath,
-      formatFeedbackForAppend(markdown, request.feedback, request.submissionId),
-      'utf8',
+      `${markdown}${formatFeedbackForAppend(markdown, request.feedback, request.submissionId)}`,
+      `feedback-${request.submissionId}`,
     )
     return false
   })
@@ -415,6 +432,88 @@ async function scanFolder(absolutePath: string, relativePath: string): Promise<L
   return nodes
 }
 
+async function saveGenerationOperationStatus(
+  operation: GenerationOperation,
+  status: GenerationOperation['status'],
+  updates: Partial<GenerationOperation> = {},
+) {
+  operation.status = status
+  Object.assign(operation, updates)
+  await generationOperationStore.save(operation)
+}
+
+async function markGenerationOperationFailed(
+  operation: GenerationOperation,
+  code: string,
+  message: string,
+) {
+  operation.status = 'failed'
+  operation.error = { code, message }
+
+  try {
+    await generationOperationStore.save(operation)
+  } catch (saveError) {
+    console.error('Failed to persist generation failure state:', saveError)
+  }
+}
+
+function getGenerationFailure(error: unknown, operation: GenerationOperation) {
+  if (error instanceof ArticleFileError) {
+    return { status: error.status, code: 'ARTICLE_FILE_ERROR', message: error.message }
+  }
+
+  if (error instanceof LearningContextError) {
+    return { status: error.status, code: error.code, message: error.message }
+  }
+
+  if (error instanceof GeneratedLessonError) {
+    return { status: 502, code: 'AI_OUTPUT_INVALID', message: error.message }
+  }
+
+  if (error instanceof WriteSafetyConflictError) {
+    return { status: 409, code: 'WRITE_SAFETY_CONFLICT', message: error.message }
+  }
+
+  if (isMissingFileError(error)) {
+    return { status: 404, code: 'ARTICLE_FILE_NOT_FOUND', message: '找不到当前 Markdown 文章。' }
+  }
+
+  if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') {
+    return {
+      status: 409,
+      code: 'NEXT_ARTICLE_EXISTS',
+      message: '下一篇文章已经存在，请先确认是否需要重新生成。',
+    }
+  }
+
+  if (operation.nextArticle?.afterHash && operation.plan?.afterHash) {
+    return {
+      status: 500,
+      code: 'WRITE_COMMIT_UNCERTAIN',
+      message: '生成结果可能已经写入学习库，但操作记录没有完成；请检查操作记录或执行回滚。',
+    }
+  }
+
+  if (
+    operation.status === 'next-article-writing' ||
+    operation.status === 'next-article-written' ||
+    operation.status === 'plan-writing' ||
+    operation.status === 'plan-written'
+  ) {
+    return {
+      status: 500,
+      code: 'WRITE_COMMIT_FAILED',
+      message: '生成结果已经部分写入，系统已尝试清理本次新文件；请检查操作状态后再重试。',
+    }
+  }
+
+  return {
+    status: 502,
+    code: 'AI_GENERATION_FAILED',
+    message: '反馈已经保存，但下一篇生成失败，可以重新尝试。',
+  }
+}
+
 app.get('/api/health', (_request, response) => {
   response.json({ status: 'ok' })
 })
@@ -530,6 +629,192 @@ app.get('/api/learning/context-preview', async (request, response) => {
   }
 })
 
+app.get('/api/learning/operations/:operationId', async (request, response) => {
+  const operationId = request.params.operationId
+
+  if (!isValidOperationId(operationId)) {
+    response.status(400).json({ message: '生成操作标识无效。' })
+    return
+  }
+
+  try {
+    const operation = await generationOperationStore.get(operationId)
+
+    if (!operation) {
+      response.status(404).json({ message: '找不到这次生成操作。' })
+      return
+    }
+
+    response.json(operation)
+  } catch (error) {
+    console.error('Failed to read generation operation:', error)
+    response.status(500).json({ message: '无法读取生成操作记录。' })
+  }
+})
+
+app.post('/api/learning/operations/:operationId/rollback', async (request, response) => {
+  const operationId = request.params.operationId
+
+  if (!isValidOperationId(operationId)) {
+    response.status(400).json({ message: '生成操作标识无效。' })
+    return
+  }
+
+  let operation: GenerationOperation | null
+
+  try {
+    operation = await generationOperationStore.get(operationId)
+  } catch (error) {
+    console.error('Failed to read generation operation for rollback:', error)
+    response.status(500).json({ message: '无法读取生成操作记录。' })
+    return
+  }
+
+  if (!operation) {
+    response.status(404).json({ message: '找不到这次生成操作。' })
+    return
+  }
+
+  if (operation.status === 'rolled-back') {
+    response.json({
+      operationId,
+      status: operation.status,
+      rolledBackFiles: operation.changedFiles,
+      feedbackKept: operation.feedbackSaved,
+    })
+    return
+  }
+
+  const nextArticleRecord = operation.nextArticle
+  const planRecord = operation.plan
+
+  if (
+    !nextArticleRecord?.afterHash ||
+    !planRecord?.beforeHash ||
+    !operation.changedFiles.includes(nextArticleRecord.relativePath)
+  ) {
+    response.status(409).json({
+      error: {
+        code: 'OPERATION_NOT_ROLLBACK_READY',
+        message: '这次生成没有足够的快照和写入记录，暂时不能执行自动回滚。',
+        recoverable: true,
+      },
+      operationId,
+      feedbackSaved: operation.feedbackSaved,
+    })
+    return
+  }
+
+  // The operation may be `failed` or `interrupted` if the process stopped while
+  // writing. We compare the current plan with both the before and after hash:
+  // either the plan is still untouched (only remove the new article), or it is
+  // exactly the generated version (restore the snapshot and remove the article).
+
+  const currentArticleResolution = resolveArticlePath(operation.currentArticlePath)
+  const nextArticleResolution = resolveArticlePath(nextArticleRecord.relativePath)
+  const planResolution = resolveArticlePath(planRecord.relativePath)
+
+  if (!currentArticleResolution.ok || !nextArticleResolution.ok || !planResolution.ok) {
+    response.status(403).json({ message: '生成操作包含不在当前学习库内的文件。' })
+    return
+  }
+
+  if (activeGenerationPaths.has(currentArticleResolution.articlePath.absolutePath)) {
+    response.status(409).json({
+      error: {
+        code: 'GENERATION_IN_PROGRESS',
+        message: '当前文章正在生成，请等待当前操作完成。',
+        recoverable: true,
+      },
+      operationId,
+    })
+    return
+  }
+
+  if (activeRollbackOperationIds.has(operationId)) {
+    response.status(409).json({
+      error: {
+        code: 'ROLLBACK_IN_PROGRESS',
+        message: '这次生成正在撤销，请等待当前操作完成。',
+        recoverable: true,
+      },
+      operationId,
+    })
+    return
+  }
+
+  const nextArticlePath = nextArticleResolution.articlePath.absolutePath
+  const planPath = planResolution.articlePath.absolutePath
+
+  activeRollbackOperationIds.add(operationId)
+
+  try {
+    const currentPlanHash = await hashFile(planPath)
+    const planWasWritten = planRecord.afterHash !== undefined && currentPlanHash === planRecord.afterHash
+    const planIsStillOriginal = currentPlanHash === planRecord.beforeHash
+
+    if (!planWasWritten && !planIsStillOriginal) {
+      throw new WriteSafetyConflictError('学习计划已经被其他操作修改，不能自动回滚。')
+    }
+
+    if (await isRegularFilePath(nextArticlePath)) {
+      const currentNextArticleHash = await hashFile(nextArticlePath)
+
+      if (currentNextArticleHash !== nextArticleRecord.afterHash) {
+        throw new WriteSafetyConflictError('下一篇文章已经被其他操作修改，不能自动回滚。')
+      }
+    }
+
+    if (planWasWritten) {
+      await generationOperationStore.restoreSnapshot(operation, planRecord, planPath)
+    }
+
+    await generationOperationStore.deleteCreatedFileIfUnchanged(
+      nextArticlePath,
+      nextArticleRecord.afterHash,
+    )
+
+    operation.status = 'rolled-back'
+    operation.error = undefined
+    await generationOperationStore.save(operation)
+
+    response.json({
+      operationId,
+      status: operation.status,
+      rolledBackFiles: planWasWritten
+        ? [nextArticleRecord.relativePath, planRecord.relativePath]
+        : [nextArticleRecord.relativePath],
+      feedbackKept: operation.feedbackSaved,
+    })
+  } catch (error) {
+    if (error instanceof WriteSafetyConflictError) {
+      response.status(409).json({
+        error: {
+          code: 'ROLLBACK_CONFLICT',
+          message: error.message,
+          recoverable: false,
+        },
+        operationId,
+        feedbackSaved: operation.feedbackSaved,
+      })
+      return
+    }
+
+    console.error('Failed to roll back generation operation:', error)
+    response.status(500).json({
+      error: {
+        code: 'ROLLBACK_FAILED',
+        message: '回滚没有完整完成，请保留当前文件并检查操作记录。',
+        recoverable: true,
+      },
+      operationId,
+      feedbackSaved: operation.feedbackSaved,
+    })
+  } finally {
+    activeRollbackOperationIds.delete(operationId)
+  }
+})
+
 app.post('/api/learning/generate-next', async (request, response) => {
   const body = request.body as Partial<SaveFeedbackRequest> | undefined
   const validation = validateFeedbackRequest(body)
@@ -550,16 +835,45 @@ app.post('/api/learning/generate-next', async (request, response) => {
     return
   }
 
+  let operation: GenerationOperation
+
+  try {
+    await generationStoreReady
+    operation = await generationOperationStore.create({
+      currentArticlePath: validation.request.relativePath,
+      feedbackSubmissionId: validation.request.submissionId,
+    })
+  } catch (error) {
+    console.error('Failed to create generation operation:', error)
+    response.status(500).json({
+      error: {
+        code: 'OPERATION_RECORD_FAILED',
+        message: '无法创建生成操作记录，本次请求没有调用 AI。',
+        recoverable: true,
+      },
+      feedbackSaved: false,
+    })
+    return
+  }
+
   let feedbackSaved = false
   activeGenerationPaths.add(validation.request.absolutePath)
 
   try {
     const alreadySaved = await saveFeedbackToFile(validation.request)
     feedbackSaved = true
+    operation.feedbackSaved = true
+    await saveGenerationOperationStatus(operation, 'feedback-saved')
 
     const context = await buildLearningContext(libraryRoot, validation.request.relativePath)
-
+    operation.nextArticlePath = context.nextArticlePath
+    operation.planPath = context.planFile.relativePath
     if (await isRegularFilePath(context.nextArticleAbsolutePath)) {
+      await markGenerationOperationFailed(
+        operation,
+        'NEXT_ARTICLE_EXISTS',
+        `下一篇文章已经存在：${path.basename(context.nextArticleAbsolutePath)}`,
+      )
       response.status(409).json({
         error: {
           code: 'NEXT_ARTICLE_EXISTS',
@@ -568,18 +882,42 @@ app.post('/api/learning/generate-next', async (request, response) => {
         },
         feedbackSaved,
         alreadySaved,
+        operationId: operation.operationId,
         nextArticlePath: context.nextArticlePath,
       })
       return
     }
 
+    operation.nextArticle = {
+      relativePath: context.nextArticlePath,
+      createdByOperation: true,
+    }
+    operation.plan = await generationOperationStore.createSnapshot(
+      operation,
+      { relativePath: context.planFile.relativePath },
+      context.planFile.absolutePath,
+    )
+
+    if (operation.plan.beforeHash !== hashText(context.planFile.markdown)) {
+      throw new WriteSafetyConflictError('学习计划在生成前已经被其他操作修改，已停止本次生成。')
+    }
+
+    await saveGenerationOperationStatus(operation, 'snapshot-created')
+
     const prompt = buildNextLessonPrompt(context, validation.request.feedback)
     const generatedMarkdown = validateGeneratedLesson(await generateText(prompt))
+    await saveGenerationOperationStatus(operation, 'ai-generated')
+    operation.nextArticle = {
+      ...operation.nextArticle,
+      relativePath: context.nextArticlePath,
+      afterHash: hashText(generatedMarkdown),
+      createdByOperation: true,
+    }
+    await saveGenerationOperationStatus(operation, 'next-article-writing')
 
-    await writeFile(context.nextArticleAbsolutePath, generatedMarkdown, {
-      encoding: 'utf8',
-      flag: 'wx',
-    })
+    await createFileAtomically(context.nextArticleAbsolutePath, generatedMarkdown, operation.operationId)
+    operation.changedFiles = [context.nextArticlePath]
+    await saveGenerationOperationStatus(operation, 'next-article-written')
 
     const updatedPlan = updatePlanAfterGeneration(
       context.planFile.markdown,
@@ -587,12 +925,30 @@ app.post('/api/learning/generate-next', async (request, response) => {
       context.nextArticlePath,
       validation.request.feedback,
     )
-    await writeFile(context.planFile.absolutePath, updatedPlan, 'utf8')
+    operation.plan = {
+      ...operation.plan,
+      relativePath: context.planFile.relativePath,
+      afterHash: hashText(updatedPlan),
+    }
+
+    const currentPlanHashBeforeWrite = await hashFile(context.planFile.absolutePath)
+
+    if (currentPlanHashBeforeWrite !== operation.plan.beforeHash) {
+      throw new WriteSafetyConflictError('学习计划在 AI 生成期间已经被其他操作修改，已保留原文件。')
+    }
+
+    await saveGenerationOperationStatus(operation, 'plan-writing')
+    await writeFileAtomically(context.planFile.absolutePath, updatedPlan, operation.operationId)
+    operation.changedFiles = [context.nextArticlePath, context.planFile.relativePath]
+    await saveGenerationOperationStatus(operation, 'plan-written')
+    await saveGenerationOperationStatus(operation, 'committed')
 
     const nextFileName = path.basename(context.nextArticleAbsolutePath)
     response.status(201).json({
       feedbackSaved,
       alreadySaved,
+      operationId: operation.operationId,
+      changedFiles: operation.changedFiles,
       currentArticlePath: validation.request.relativePath,
       nextArticle: {
         fileName: nextFileName,
@@ -602,67 +958,67 @@ app.post('/api/learning/generate-next', async (request, response) => {
       },
     })
   } catch (error) {
-    if (error instanceof ArticleFileError) {
-      response.status(error.status).json({ message: error.message, feedbackSaved })
-      return
+    const failure = getGenerationFailure(error, operation)
+    const nextArticleRecord = operation.nextArticle
+    const generatedArticleHash = nextArticleRecord?.afterHash
+    let planWasWritten = false
+    let planIsStillOriginal = false
+
+    if (operation.plan && operation.planPath) {
+      const planResolution = resolveArticlePath(operation.planPath)
+
+      if (planResolution.ok && operation.plan.beforeHash) {
+        try {
+          const currentPlanHash = await hashFile(planResolution.articlePath.absolutePath)
+          planWasWritten =
+            operation.plan.afterHash !== undefined && currentPlanHash === operation.plan.afterHash
+          planIsStillOriginal = currentPlanHash === operation.plan.beforeHash
+        } catch (planError) {
+          console.error('Failed to inspect the learning plan after a write error:', planError)
+        }
+      }
     }
 
-    if (error instanceof LearningContextError) {
-      response.status(error.status).json({
-        error: {
-          code: error.code,
-          message: error.message,
-          recoverable: false,
-        },
-        feedbackSaved,
-      })
-      return
+    const shouldCleanUpCreatedArticle =
+      operation.status !== 'committed' &&
+      operation.status !== 'rolled-back' &&
+      nextArticleRecord?.createdByOperation === true &&
+      operation.nextArticlePath !== null &&
+      operation.changedFiles.includes(operation.nextArticlePath) &&
+      typeof generatedArticleHash === 'string' &&
+      !planWasWritten &&
+      planIsStillOriginal
+
+    let cleanupMessage = ''
+
+    if (shouldCleanUpCreatedArticle && operation.nextArticlePath) {
+      try {
+        const nextArticleResolution = resolveArticlePath(operation.nextArticlePath)
+
+        if (nextArticleResolution.ok) {
+          await generationOperationStore.deleteCreatedFileIfUnchanged(
+            nextArticleResolution.articlePath.absolutePath,
+            generatedArticleHash,
+          )
+        }
+      } catch (cleanupError) {
+        cleanupMessage = ' 自动清理新文件失败，请使用操作记录检查本次生成。'
+        console.error('Failed to clean up generated lesson after a write error:', cleanupError)
+      }
     }
 
-    if (error instanceof GeneratedLessonError) {
-      response.status(502).json({
-        error: {
-          code: 'AI_OUTPUT_INVALID',
-          message: error.message,
-          recoverable: true,
-        },
-        feedbackSaved,
-      })
-      return
-    }
-
-    if (isMissingFileError(error)) {
-      response.status(404).json({
-        error: {
-          code: 'ARTICLE_FILE_NOT_FOUND',
-          message: '找不到当前 Markdown 文章。',
-          recoverable: false,
-        },
-        feedbackSaved,
-      })
-      return
-    }
-
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST') {
-      response.status(409).json({
-        error: {
-          code: 'NEXT_ARTICLE_EXISTS',
-          message: '下一篇文章已经存在，请先确认是否需要重新生成。',
-          recoverable: false,
-        },
-        feedbackSaved,
-      })
-      return
-    }
+    const failureMessage = `${failure.message}${cleanupMessage}`
+    await markGenerationOperationFailed(operation, failure.code, failureMessage)
 
     console.error('Failed to generate the next lesson:', error)
-    response.status(502).json({
+    response.status(failure.status).json({
       error: {
-        code: 'AI_GENERATION_FAILED',
-        message: '反馈已经保存，但下一篇生成失败，可以重新尝试。',
-        recoverable: true,
+        code: failure.code,
+        message: failureMessage,
+        recoverable: failure.status >= 500 || failure.code === 'WRITE_SAFETY_CONFLICT',
       },
       feedbackSaved,
+      operationId: operation.operationId,
     })
   } finally {
     activeGenerationPaths.delete(validation.request.absolutePath)

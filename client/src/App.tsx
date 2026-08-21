@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
-import { generateNextLesson, loadArticle, loadLibrary, saveFeedback } from './api'
+import { generateNextLesson, loadArticle, loadLibrary, rollbackGeneration, saveFeedback } from './api'
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
@@ -9,6 +9,7 @@ import type { ArticleContent, GenerationState, LibraryEntry, ReadingPosition } f
 const expandedNodesStorageKey = 'interactive-study-boox.expanded-nodes'
 const lastArticleStorageKey = 'interactive-study-boox.last-article'
 const readingPositionStorageKey = 'interactive-study-boox.reading-position'
+const generationRecoveryStorageKey = 'interactive-study-boox.generation-recovery'
 
 interface FeedbackStatus {
   kind: 'success' | 'error'
@@ -29,6 +30,39 @@ function writeStorageValue(key: string, value: string) {
   } catch {
     // 静态原型在浏览器拒绝本地存储时仍可继续使用，只是不保留偏好。
   }
+}
+
+function readGenerationRecovery(articlePath: string) {
+  const savedValue = readStorageValue(generationRecoveryStorageKey)
+
+  if (!savedValue) {
+    return null
+  }
+
+  try {
+    const parsedValue: unknown = JSON.parse(savedValue)
+
+    if (
+      typeof parsedValue === 'object' &&
+      parsedValue !== null &&
+      'articlePath' in parsedValue &&
+      'operationId' in parsedValue &&
+      'changedFiles' in parsedValue &&
+      parsedValue.articlePath === articlePath &&
+      typeof parsedValue.operationId === 'string' &&
+      Array.isArray(parsedValue.changedFiles) &&
+      parsedValue.changedFiles.every((filePath) => typeof filePath === 'string')
+    ) {
+      return {
+        operationId: parsedValue.operationId,
+        changedFiles: parsedValue.changedFiles,
+      }
+    }
+  } catch {
+    // 损坏的恢复偏好不应阻止文章打开。
+  }
+
+  return null
 }
 
 function readExpandedNodes() {
@@ -120,6 +154,11 @@ function App() {
   const [feedback, setFeedback] = useState('')
   const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
   const [isNextLessonGenerating, setIsNextLessonGenerating] = useState(false)
+  const [generationRecovery, setGenerationRecovery] = useState<{
+    operationId: string
+    changedFiles: string[]
+  } | null>(null)
+  const [isRollingBack, setIsRollingBack] = useState(false)
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
@@ -164,6 +203,8 @@ function App() {
     setIsArticleLoading(true)
     setIsFeedbackSaving(false)
     setIsNextLessonGenerating(false)
+    setGenerationRecovery(null)
+    setIsRollingBack(false)
     setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
@@ -177,6 +218,7 @@ function App() {
 
       setCurrentArticle(article)
       setRestoreScrollRatio(readScrollRatio(article.relativePath))
+      setGenerationRecovery(readGenerationRecovery(article.relativePath))
       setFeedback(article.latestFeedback?.feedback ?? '')
       pendingFeedbackSubmissionRef.current = article.latestFeedback
     } catch (error) {
@@ -307,6 +349,18 @@ function App() {
         kind: 'success',
         message: `下一篇已生成：${result.nextArticle.fileName}。当前仍停留在这篇文章。`,
       })
+      setGenerationRecovery({
+        operationId: result.operationId,
+        changedFiles: result.changedFiles,
+      })
+      writeStorageValue(
+        generationRecoveryStorageKey,
+        JSON.stringify({
+          articlePath: currentArticle.relativePath,
+          operationId: result.operationId,
+          changedFiles: result.changedFiles,
+        }),
+      )
       setCurrentArticle((previousArticle) =>
         previousArticle
           ? { ...previousArticle, generationInProgress: false, nextArticleExists: true }
@@ -331,6 +385,43 @@ function App() {
       }
     }
   }, [currentArticle, feedback])
+
+  const handleRollbackGeneration = useCallback(async () => {
+    if (!currentArticle || !generationRecovery || isRollingBack) {
+      return
+    }
+
+    setIsRollingBack(true)
+    setFeedbackStatus(null)
+
+    try {
+      const result = await rollbackGeneration(generationRecovery.operationId)
+
+      setGenerationRecovery(null)
+      try {
+        window.localStorage.removeItem(generationRecoveryStorageKey)
+      } catch {
+        // 本地存储不可用时仍然完成服务端回滚。
+      }
+      setCurrentArticle((previousArticle) =>
+        previousArticle
+          ? { ...previousArticle, nextArticleExists: false, generationInProgress: false }
+          : previousArticle,
+      )
+      setFeedbackStatus({
+        kind: 'success',
+        message: `已撤销本次生成：${result.rolledBackFiles.join('、')}。学习反馈仍然保留。`,
+      })
+      setLibraryRequestVersion((previousVersion) => previousVersion + 1)
+    } catch (error) {
+      setFeedbackStatus({
+        kind: 'error',
+        message: getErrorMessage(error, '暂时无法撤销本次生成，请保留当前文件并检查操作记录。'),
+      })
+    } finally {
+      setIsRollingBack(false)
+    }
+  }, [currentArticle, generationRecovery, isRollingBack])
 
   useEffect(() => {
     if (!currentArticle?.generationInProgress) {
@@ -532,10 +623,13 @@ function App() {
         isFeedbackSaving={isFeedbackSaving}
         isNextLessonGenerating={isNextLessonGenerating}
         generationState={generationState}
+        generationRecovery={generationRecovery}
+        isRollingBack={isRollingBack}
         hasSavedFeedback={Boolean(currentArticle.latestFeedback?.feedback.trim())}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}
+        onRollback={handleRollbackGeneration}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
         onOpenArticle={handleOpenArticle}

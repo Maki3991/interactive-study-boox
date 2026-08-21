@@ -19,6 +19,7 @@ coverage/
 !.env.example
 *.local
 *.local.json
+.interactive-study-boox/
 
 # Logs
 logs/
