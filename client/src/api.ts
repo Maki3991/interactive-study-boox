@@ -5,6 +5,8 @@ import type {
   RollbackGenerationResponse,
   SaveFeedbackRequest,
   SaveFeedbackResponse,
+  SyncPushResponse,
+  SyncStatus,
 } from './types'
 
 const apiBasePath = '/api'
@@ -61,4 +63,16 @@ export function rollbackGeneration(operationId: string) {
     `/learning/operations/${encodeURIComponent(operationId)}/rollback`,
     { method: 'POST' },
   )
+}
+
+export function loadSyncStatus() {
+  return requestJson<SyncStatus>('/sync/status')
+}
+
+export function pushSync(message?: string) {
+  return requestJson<SyncPushResponse>('/sync/push', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
 }

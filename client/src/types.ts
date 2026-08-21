@@ -110,3 +110,26 @@ export interface RollbackGenerationResponse {
   rolledBackFiles: string[]
   feedbackKept: boolean
 }
+
+export type SyncState = 'disabled' | 'clean' | 'pending' | 'conflict' | 'offline'
+
+export interface SyncStatus {
+  state: SyncState
+  repositoryName: string | null
+  branch: string | null
+  changedFiles: string[]
+  ahead: number
+  behind: number
+  conflictFiles: string[]
+  lastSyncedCommit: string | null
+  message?: string
+  blockedFiles?: string[]
+}
+
+export interface SyncPushResponse {
+  state: 'clean'
+  commitHash: string
+  commitMessage: string
+  syncedFiles: string[]
+  syncedAt: string
+}
