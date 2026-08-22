@@ -1,10 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
-import { generateNextLesson, loadArticle, loadLibrary, rollbackGeneration, saveFeedback } from './api'
+import {
+  generateNextLesson,
+  loadArticle,
+  loadLibrary,
+  loadSyncStatus,
+  pushSync,
+  rollbackGeneration,
+  saveFeedback,
+} from './api'
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
-import type { ArticleContent, GenerationState, LibraryEntry, ReadingPosition } from './types'
+import SyncDrawer from './components/SyncDrawer'
+import type {
+  ArticleContent,
+  GenerationState,
+  LibraryEntry,
+  ReadingPosition,
+  SyncStatus,
+} from './types'
 
 const expandedNodesStorageKey = 'interactive-study-boox.expanded-nodes'
 const lastArticleStorageKey = 'interactive-study-boox.last-article'
@@ -129,6 +144,20 @@ function getErrorMessage(error: unknown, fallbackMessage: string) {
   return error instanceof Error && error.message ? error.message : fallbackMessage
 }
 
+function createOfflineSyncStatus(message: string): SyncStatus {
+  return {
+    state: 'offline',
+    repositoryName: null,
+    branch: null,
+    changedFiles: [],
+    ahead: 0,
+    behind: 0,
+    conflictFiles: [],
+    lastSyncedCommit: null,
+    message,
+  }
+}
+
 function createSubmissionId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
@@ -151,6 +180,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileView, setMobileView] = useState<'reader' | 'library'>('reader')
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
   const [isNextLessonGenerating, setIsNextLessonGenerating] = useState(false)
@@ -160,12 +190,58 @@ function App() {
   } | null>(null)
   const [isRollingBack, setIsRollingBack] = useState(false)
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus | null>(null)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
+  const [isSyncStatusLoading, setIsSyncStatusLoading] = useState(true)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [syncCommitMessage, setSyncCommitMessage] = useState('')
+  const [syncNotice, setSyncNotice] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
   const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
   const latestArticleRequestRef = useRef(0)
   const latestFeedbackRequestRef = useRef(0)
   const latestGenerationRequestRef = useRef(0)
   const pendingFeedbackSubmissionRef = useRef<{ feedback: string; submissionId: string } | null>(null)
+
+  const refreshSyncStatus = useCallback(async () => {
+    setIsSyncStatusLoading(true)
+
+    try {
+      const status = await loadSyncStatus()
+      setSyncStatus(status)
+      return status
+    } catch (error) {
+      const status = createOfflineSyncStatus(getErrorMessage(error, '无法读取 Git 同步状态。'))
+      setSyncStatus(status)
+      return status
+    } finally {
+      setIsSyncStatusLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let isCurrentRequest = true
+
+    loadSyncStatus()
+      .then((status) => {
+        if (isCurrentRequest) {
+          setSyncStatus(status)
+        }
+      })
+      .catch((error) => {
+        if (isCurrentRequest) {
+          setSyncStatus(createOfflineSyncStatus(getErrorMessage(error, '无法读取 Git 同步状态。')))
+        }
+      })
+      .finally(() => {
+        if (isCurrentRequest) {
+          setIsSyncStatusLoading(false)
+        }
+      })
+
+    return () => {
+      isCurrentRequest = false
+    }
+  }, [])
 
   useEffect(() => {
     if (currentArticle) {
@@ -208,6 +284,7 @@ function App() {
     setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
 
     try {
       const article = await loadArticle(articlePath)
@@ -286,6 +363,7 @@ function App() {
           ? '这份反馈此前已经保存，系统没有重复写入。'
           : '反馈已安全保存到当前 Markdown 文件。',
       })
+      void refreshSyncStatus()
     } catch (error) {
       if (requestId !== latestFeedbackRequestRef.current) {
         return
@@ -300,7 +378,7 @@ function App() {
         setIsFeedbackSaving(false)
       }
     }
-  }, [currentArticle, feedback])
+  }, [currentArticle, feedback, refreshSyncStatus])
 
   const handleGenerateNextLesson = useCallback(async () => {
     const savedFeedback = currentArticle?.latestFeedback?.feedback.trim() ?? ''
@@ -367,6 +445,7 @@ function App() {
           : previousArticle,
       )
       setLibraryRequestVersion((previousVersion) => previousVersion + 1)
+      void refreshSyncStatus()
     } catch (error) {
       if (requestId !== latestGenerationRequestRef.current) {
         return
@@ -384,7 +463,7 @@ function App() {
         )
       }
     }
-  }, [currentArticle, feedback])
+  }, [currentArticle, feedback, refreshSyncStatus])
 
   const handleRollbackGeneration = useCallback(async () => {
     if (!currentArticle || !generationRecovery || isRollingBack) {
@@ -413,6 +492,7 @@ function App() {
         message: `已撤销本次生成：${result.rolledBackFiles.join('、')}。学习反馈仍然保留。`,
       })
       setLibraryRequestVersion((previousVersion) => previousVersion + 1)
+      void refreshSyncStatus()
     } catch (error) {
       setFeedbackStatus({
         kind: 'error',
@@ -421,7 +501,33 @@ function App() {
     } finally {
       setIsRollingBack(false)
     }
-  }, [currentArticle, generationRecovery, isRollingBack])
+  }, [currentArticle, generationRecovery, isRollingBack, refreshSyncStatus])
+
+  const handleSync = useCallback(async () => {
+    setIsSyncing(true)
+    setSyncNotice(null)
+
+    try {
+      const result = await pushSync(syncCommitMessage.trim() || undefined)
+      const syncedFileCount = result.syncedFiles.length
+      setSyncCommitMessage('')
+      setSyncNotice({
+        kind: 'success',
+        message:
+          syncedFileCount > 0
+            ? `已用一个 commit 同步 ${syncedFileCount} 个 Markdown 文件。`
+            : '当前没有新的 Markdown 修改，远程仓库已经是最新状态。',
+      })
+      await refreshSyncStatus()
+    } catch (error) {
+      setSyncNotice({
+        kind: 'error',
+        message: getErrorMessage(error, '同步失败，请先检查同步状态和服务端配置。'),
+      })
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [refreshSyncStatus, syncCommitMessage])
 
   useEffect(() => {
     if (!currentArticle?.generationInProgress) {
@@ -518,6 +624,7 @@ function App() {
   const handleFocusFeedback = useCallback(() => {
     setMobileView('reader')
     setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
 
     window.setTimeout(() => {
       feedbackRef.current?.scrollIntoView({ block: 'start' })
@@ -528,6 +635,13 @@ function App() {
   const handleShowLibrary = useCallback(() => {
     setSidebarOpen(true)
     setMobileView('library')
+    setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
+  }, [])
+
+  const handleToggleSyncPanel = useCallback(() => {
+    setSyncPanelOpen((isOpen) => !isOpen)
+    setMobileView('reader')
     setReaderMenuOpen(false)
   }, [])
 
@@ -626,12 +740,14 @@ function App() {
         generationRecovery={generationRecovery}
         isRollingBack={isRollingBack}
         hasSavedFeedback={Boolean(currentArticle.latestFeedback?.feedback.trim())}
+        syncPanelOpen={syncPanelOpen}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}
         onRollback={handleRollbackGeneration}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
+        onToggleSyncPanel={handleToggleSyncPanel}
         onOpenArticle={handleOpenArticle}
       />
     )
@@ -640,7 +756,9 @@ function App() {
   const appClassName = [
     'app-shell',
     sidebarOpen ? '' : 'sidebar-is-collapsed',
+    syncPanelOpen ? 'sync-panel-is-open' : '',
     mobileView === 'library' ? 'mobile-library-is-open' : '',
+    syncPanelOpen ? 'mobile-sync-is-open' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -672,14 +790,38 @@ function App() {
           <button
             className="expand-library-button"
             type="button"
+            aria-label="展开学习库"
+            title="展开学习库"
             onClick={() => setSidebarOpen(true)}
           >
-            ☰ 学习库
+            ☰
           </button>
         )}
 
         {renderReaderContent()}
       </main>
+
+      {syncPanelOpen && (
+        <>
+          <button
+            className="mobile-sync-dismiss-area"
+            type="button"
+            aria-label="关闭 GitHub 同步侧栏"
+            onClick={() => setSyncPanelOpen(false)}
+          />
+          <SyncDrawer
+            status={syncStatus}
+            isLoading={isSyncStatusLoading}
+            isSyncing={isSyncing}
+            commitMessage={syncCommitMessage}
+            notice={syncNotice}
+            onCommitMessageChange={setSyncCommitMessage}
+            onRefresh={refreshSyncStatus}
+            onSync={handleSync}
+            onClose={() => setSyncPanelOpen(false)}
+          />
+        </>
+      )}
 
       {mobileView === 'library' && (
         <button
@@ -708,6 +850,7 @@ function App() {
           setMobileView('library')
         }}
         onFocusFeedback={handleFocusFeedback}
+        onOpenSync={handleToggleSyncPanel}
       />
     </div>
   )
