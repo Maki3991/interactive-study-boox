@@ -12,7 +12,7 @@ import {
 import LibraryTree from './components/LibraryTree'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
-import SyncPanel from './components/SyncPanel'
+import SyncDrawer from './components/SyncDrawer'
 import type {
   ArticleContent,
   GenerationState,
@@ -180,6 +180,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileView, setMobileView] = useState<'reader' | 'library'>('reader')
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
   const [isNextLessonGenerating, setIsNextLessonGenerating] = useState(false)
@@ -283,6 +284,7 @@ function App() {
     setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
 
     try {
       const article = await loadArticle(articlePath)
@@ -622,6 +624,7 @@ function App() {
   const handleFocusFeedback = useCallback(() => {
     setMobileView('reader')
     setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
 
     window.setTimeout(() => {
       feedbackRef.current?.scrollIntoView({ block: 'start' })
@@ -632,6 +635,13 @@ function App() {
   const handleShowLibrary = useCallback(() => {
     setSidebarOpen(true)
     setMobileView('library')
+    setReaderMenuOpen(false)
+    setSyncPanelOpen(false)
+  }, [])
+
+  const handleToggleSyncPanel = useCallback(() => {
+    setSyncPanelOpen((isOpen) => !isOpen)
+    setMobileView('reader')
     setReaderMenuOpen(false)
   }, [])
 
@@ -730,12 +740,14 @@ function App() {
         generationRecovery={generationRecovery}
         isRollingBack={isRollingBack}
         hasSavedFeedback={Boolean(currentArticle.latestFeedback?.feedback.trim())}
+        syncPanelOpen={syncPanelOpen}
         onFeedbackChange={handleFeedbackChange}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}
         onRollback={handleRollbackGeneration}
         onReadingPositionChange={handleReadingPositionChange}
         onReaderMenuGesture={() => setReaderMenuOpen((isOpen) => !isOpen)}
+        onToggleSyncPanel={handleToggleSyncPanel}
         onOpenArticle={handleOpenArticle}
       />
     )
@@ -744,7 +756,9 @@ function App() {
   const appClassName = [
     'app-shell',
     sidebarOpen ? '' : 'sidebar-is-collapsed',
+    syncPanelOpen ? 'sync-panel-is-open' : '',
     mobileView === 'library' ? 'mobile-library-is-open' : '',
+    syncPanelOpen ? 'mobile-sync-is-open' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -769,16 +783,6 @@ function App() {
         </header>
 
         {renderLibraryContent()}
-        <SyncPanel
-          status={syncStatus}
-          isLoading={isSyncStatusLoading}
-          isSyncing={isSyncing}
-          commitMessage={syncCommitMessage}
-          notice={syncNotice}
-          onCommitMessageChange={setSyncCommitMessage}
-          onRefresh={refreshSyncStatus}
-          onSync={handleSync}
-        />
       </aside>
 
       <main className="reading-workspace">
@@ -786,14 +790,38 @@ function App() {
           <button
             className="expand-library-button"
             type="button"
+            aria-label="展开学习库"
+            title="展开学习库"
             onClick={() => setSidebarOpen(true)}
           >
-            ☰ 学习库
+            ☰
           </button>
         )}
 
         {renderReaderContent()}
       </main>
+
+      {syncPanelOpen && (
+        <>
+          <button
+            className="mobile-sync-dismiss-area"
+            type="button"
+            aria-label="关闭 GitHub 同步侧栏"
+            onClick={() => setSyncPanelOpen(false)}
+          />
+          <SyncDrawer
+            status={syncStatus}
+            isLoading={isSyncStatusLoading}
+            isSyncing={isSyncing}
+            commitMessage={syncCommitMessage}
+            notice={syncNotice}
+            onCommitMessageChange={setSyncCommitMessage}
+            onRefresh={refreshSyncStatus}
+            onSync={handleSync}
+            onClose={() => setSyncPanelOpen(false)}
+          />
+        </>
+      )}
 
       {mobileView === 'library' && (
         <button
@@ -813,16 +841,6 @@ function App() {
         </header>
 
         {renderLibraryContent()}
-        <SyncPanel
-          status={syncStatus}
-          isLoading={isSyncStatusLoading}
-          isSyncing={isSyncing}
-          commitMessage={syncCommitMessage}
-          notice={syncNotice}
-          onCommitMessageChange={setSyncCommitMessage}
-          onRefresh={refreshSyncStatus}
-          onSync={handleSync}
-        />
       </aside>
 
       <ReaderMenu
@@ -832,6 +850,7 @@ function App() {
           setMobileView('library')
         }}
         onFocusFeedback={handleFocusFeedback}
+        onOpenSync={handleToggleSyncPanel}
       />
     </div>
   )

@@ -394,7 +394,7 @@ async function scanFolder(absolutePath: string, relativePath: string): Promise<L
   const readableEntries = directoryEntries
     .filter(
       (entry) =>
-        entry.isDirectory() ||
+        (entry.isDirectory() && entry.name.toLowerCase() !== '.git') ||
         (entry.isFile() && entry.name.toLowerCase().endsWith('.md')),
     )
     .sort((left, right) => {
