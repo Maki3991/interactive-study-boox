@@ -2,9 +2,10 @@ interface ReaderMenuProps {
   open: boolean
   onOpenLibrary: () => void
   onFocusFeedback: () => void
+  onOpenSync: () => void
 }
 
-function ReaderMenu({ open, onOpenLibrary, onFocusFeedback }: ReaderMenuProps) {
+function ReaderMenu({ open, onOpenLibrary, onFocusFeedback, onOpenSync }: ReaderMenuProps) {
   if (!open) {
     return null
   }
@@ -16,6 +17,9 @@ function ReaderMenu({ open, onOpenLibrary, onFocusFeedback }: ReaderMenuProps) {
       </button>
       <button type="button" onClick={onFocusFeedback}>
         写反馈
+      </button>
+      <button type="button" onClick={onOpenSync}>
+        同步
       </button>
     </section>
   )

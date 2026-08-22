@@ -1,7 +1,7 @@
 import { useId } from 'react'
 import type { SyncState, SyncStatus } from '../types'
 
-interface SyncPanelProps {
+export interface SyncPanelProps {
   status: SyncStatus | null
   isLoading: boolean
   isSyncing: boolean
