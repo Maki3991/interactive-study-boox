@@ -2,7 +2,9 @@ import express from 'express'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { generateText } from './ai.js'
+import { libraryRoot, writeSafetyRoot } from './config.js'
 import { buildNextLessonPrompt } from './generationPrompt.js'
+import { GitSyncError, getSyncStatus, pushSync } from './gitSync.js'
 import { buildLearningContext, LearningContextError } from './learningContext.js'
 import {
   GenerationOperation,
@@ -90,9 +92,6 @@ class GeneratedLessonError extends Error {
 
 const app = express()
 const port = 3001
-// 开发期固定读取项目根目录下的测试学习库；以后会改为用户选择并保存的路径。
-const libraryRoot = path.resolve(process.cwd(), '../sample-library')
-const writeSafetyRoot = path.resolve(process.cwd(), '.interactive-study-boox')
 const feedbackMarkerPrefix = '<!-- interactive-study-boox:feedback-submission-id='
 const feedbackMarkerSuffix = ' -->'
 const feedbackWriteLocks = new Map<string, Promise<void>>()
@@ -395,7 +394,7 @@ async function scanFolder(absolutePath: string, relativePath: string): Promise<L
   const readableEntries = directoryEntries
     .filter(
       (entry) =>
-        entry.isDirectory() ||
+        (entry.isDirectory() && entry.name.toLowerCase() !== '.git') ||
         (entry.isFile() && entry.name.toLowerCase().endsWith('.md')),
     )
     .sort((left, right) => {
@@ -1056,6 +1055,38 @@ app.post('/api/feedback', async (request, response) => {
 
     console.error('Failed to save feedback:', error)
     response.status(500).json({ message: '无法保存反馈，请稍后重试。' })
+  }
+})
+
+app.get('/api/sync/status', async (_request, response) => {
+  response.json(await getSyncStatus())
+})
+
+app.post('/api/sync/push', async (request, response) => {
+  const body = request.body as { message?: unknown } | undefined
+
+  try {
+    response.json(await pushSync(body?.message))
+  } catch (error) {
+    if (error instanceof GitSyncError) {
+      response.status(error.status).json({
+        error: {
+          code: error.code,
+          message: error.message,
+          recoverable: error.status >= 500,
+        },
+      })
+      return
+    }
+
+    console.error('Failed to synchronize the learning repository:', error)
+    response.status(500).json({
+      error: {
+        code: 'GIT_SYNC_FAILED',
+        message: '同步学习资料失败，请检查服务端日志。',
+        recoverable: true,
+      },
+    })
   }
 })
 

@@ -1,0 +1,665 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Interactive Study · 同步布局原型</title>
+    <style>
+      :root {
+        --canvas: #f2f2ee;
+        --surface: #ffffff;
+        --ink: #171717;
+        --muted: #6d6d68;
+        --line: #d3d3cc;
+        --selected: #e9e9e3;
+        --quiet: #f0f0eb;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--canvas);
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--canvas);
+        font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
+      }
+
+      button,
+      textarea,
+      input {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .prototype-toolbar {
+        position: sticky;
+        z-index: 10;
+        top: 0;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 20px;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 24px;
+        background: var(--surface);
+      }
+
+      .prototype-toolbar h1 {
+        margin: 0;
+        font-size: 21px;
+      }
+
+      .prototype-toolbar p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 28px;
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .preview-card {
+        min-width: 0;
+      }
+
+      .preview-card h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      .preview-card > p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        font-size: 13px;
+      }
+
+      .device-stage {
+        display: grid;
+        min-height: 320px;
+        place-items: center;
+        overflow: auto;
+        border: 1px solid var(--line);
+        padding: 20px;
+        background: #dfdfd9;
+      }
+
+      .desktop-screen,
+      .narrow-screen {
+        overflow: hidden;
+        border: 1px solid #222;
+        background: var(--surface);
+        box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+      }
+
+      .desktop-screen {
+        width: min(1180px, 100%);
+        height: 680px;
+      }
+
+      .desktop-app {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr) 300px;
+        height: 100%;
+      }
+
+      .desktop-app.library-hidden {
+        grid-template-columns: minmax(0, 1fr) 300px;
+      }
+
+      .desktop-app.sync-hidden {
+        grid-template-columns: 260px minmax(0, 1fr);
+      }
+
+      .desktop-app.library-hidden.sync-hidden {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .desktop-sidebar,
+      .sync-sidebar {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .desktop-sidebar {
+        border-right: 1px solid var(--line);
+      }
+
+      .sync-sidebar {
+        border-left: 1px solid var(--line);
+      }
+
+      .panel-header,
+      .reader-header {
+        display: flex;
+        min-height: 66px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 16px;
+      }
+
+      .panel-header h3,
+      .reader-header p {
+        margin: 0;
+      }
+
+      .panel-header h3 {
+        font-size: 18px;
+      }
+
+      .eyebrow {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border: 0;
+        color: var(--ink);
+        background: transparent;
+        font-size: 23px;
+        line-height: 1;
+      }
+
+      .icon-button:hover,
+      .icon-button:focus-visible {
+        background: var(--quiet);
+      }
+
+      .reader-area {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        background: var(--surface);
+      }
+
+      .reader-header {
+        padding-right: 12px;
+        padding-left: 18px;
+      }
+
+      .reader-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .reader-title strong {
+        display: block;
+        font-size: 16px;
+      }
+
+      .reader-title small {
+        display: block;
+        margin-top: 4px;
+        overflow: hidden;
+        color: var(--muted);
+        font-family: system-ui, sans-serif;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .reader-scroll,
+      .panel-scroll {
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .reader-scroll {
+        flex: 1;
+        padding: 32px clamp(28px, 6vw, 76px) 80px;
+      }
+
+      .reader-scroll h1 {
+        margin: 0 0 24px;
+        font-size: clamp(28px, 4vw, 42px);
+        line-height: 1.15;
+      }
+
+      .reader-scroll h2 {
+        margin-top: 38px;
+        font-size: 23px;
+      }
+
+      .reader-scroll p,
+      .reader-scroll li {
+        font-size: 17px;
+        line-height: 1.85;
+      }
+
+      .reader-scroll hr {
+        margin: 34px 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .library-tree {
+        flex: 1;
+        padding: 16px 12px;
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+      }
+
+      .tree-line {
+        display: flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 7px;
+        padding: 4px 7px;
+      }
+
+      .tree-line.current {
+        background: var(--selected);
+        font-weight: 700;
+      }
+
+      .tree-children {
+        margin-left: 16px;
+        border-left: 1px solid var(--line);
+        padding-left: 8px;
+      }
+
+      .sync-content {
+        padding: 20px 18px;
+        font-family: system-ui, sans-serif;
+      }
+
+      .sync-content .eyebrow {
+        margin-bottom: 7px;
+      }
+
+      .sync-content h3 {
+        margin: 0 0 16px;
+        font-size: 19px;
+      }
+
+      .sync-status {
+        margin: 0 0 18px;
+        border-left: 4px solid #5d5d58;
+        padding: 11px 12px;
+        background: var(--selected);
+        font-size: 14px;
+        line-height: 1.5;
+      }
+
+      .sync-meta {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.7;
+      }
+
+      .sync-content label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .sync-content input {
+        width: 100%;
+        border: 1px solid var(--line);
+        padding: 10px;
+        font-size: 14px;
+      }
+
+      .sync-action {
+        width: 100%;
+        min-height: 44px;
+        margin-top: 14px;
+        border: 1px solid var(--ink);
+        color: var(--surface);
+        background: var(--ink);
+        font-weight: 700;
+      }
+
+      .narrow-screen {
+        position: relative;
+        width: 390px;
+        height: 720px;
+      }
+
+      .boox-screen {
+        width: 504px;
+        height: 672px;
+      }
+
+      .narrow-app {
+        position: relative;
+        height: 100%;
+        overflow: hidden;
+        background: var(--surface);
+      }
+
+      .narrow-reader {
+        height: 100%;
+        overflow: auto;
+        padding: 28px 24px 116px;
+      }
+
+      .narrow-reader h1 {
+        margin: 0 0 24px;
+        font-size: 29px;
+        line-height: 1.2;
+      }
+
+      .narrow-reader h2 {
+        margin-top: 30px;
+        font-size: 22px;
+      }
+
+      .narrow-reader p {
+        font-size: 18px;
+        line-height: 1.8;
+      }
+
+      .narrow-reader hr {
+        margin: 30px 0;
+        border: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .narrow-menu {
+        position: absolute;
+        z-index: 2;
+        right: 14px;
+        bottom: 14px;
+        left: 14px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        border: 1px solid var(--ink);
+        padding: 8px;
+        background: var(--surface);
+      }
+
+      .narrow-menu button {
+        min-height: 48px;
+        border: 1px solid var(--ink);
+        color: var(--ink);
+        background: var(--surface);
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .narrow-menu button:last-child {
+        color: var(--surface);
+        background: var(--ink);
+      }
+
+      .narrow-sync-panel {
+        position: absolute;
+        z-index: 3;
+        inset: 0 0 0 auto;
+        display: flex;
+        width: 68%;
+        min-height: 0;
+        flex-direction: column;
+        overflow: auto;
+        border-left: 1px solid var(--ink);
+        padding: 20px;
+        background: var(--surface);
+      }
+
+      .narrow-sync-panel[hidden] {
+        display: none;
+      }
+
+      .narrow-sync-panel header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 12px;
+      }
+
+      .narrow-sync-panel h3 {
+        margin: 0;
+        font-size: 20px;
+      }
+
+      .narrow-sync-panel p {
+        font-family: system-ui, sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .narrow-sync-panel .sync-action {
+        margin-top: 8px;
+      }
+
+      @media (min-width: 1050px) {
+        .preview-grid {
+          grid-template-columns: minmax(0, 1fr) minmax(390px, 0.55fr);
+          align-items: start;
+        }
+
+        .preview-card:first-child {
+          grid-row: span 2;
+        }
+      }
+
+      @media (max-width: 700px) {
+        .prototype-toolbar {
+          display: block;
+        }
+
+        .prototype-toolbar p {
+          margin-top: 7px;
+        }
+
+        .preview-grid {
+          padding: 18px 12px;
+        }
+
+        .device-stage {
+          justify-content: start;
+          padding: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="prototype-toolbar">
+      <h1>Interactive Study · 同步入口布局原型</h1>
+      <p>仅用于看布局，不连接真实学习库或 GitHub。</p>
+    </header>
+
+    <main class="preview-grid">
+      <section class="preview-card">
+        <h2>电脑端 · 1440px 级宽屏预览</h2>
+        <p>左边是学习库；当前先展示右边同步侧栏打开的状态。可点击顶部图标测试展开和收起。</p>
+        <div class="device-stage">
+          <div class="desktop-screen">
+            <div class="desktop-app" id="desktop-preview">
+              <aside class="desktop-sidebar" id="desktop-library">
+                <header class="panel-header">
+                  <div>
+                    <p class="eyebrow">Interactive Study</p>
+                    <h3>学习库</h3>
+                  </div>
+                  <button class="icon-button" type="button" data-toggle="desktop-library" aria-label="收起学习库">‹</button>
+                </header>
+                <div class="library-tree">
+                  <div class="tree-line">▼　□ archived</div>
+                  <div class="tree-line">▼　□ on-going</div>
+                  <div class="tree-children">
+                    <div class="tree-line">▼　□ 蓝皮书与棕皮书</div>
+                    <div class="tree-children">
+                      <div class="tree-line">▶　□ assets</div>
+                      <div class="tree-line">▼　□ sources</div>
+                      <div class="tree-children">
+                        <div class="tree-line">▶　□ blue-book</div>
+                        <div class="tree-line">▶　□ brown-book</div>
+                      </div>
+                      <div class="tree-line current">▤　01.md</div>
+                    </div>
+                  </div>
+                  <div class="tree-line">▶　□ yet-to-start</div>
+                </div>
+              </aside>
+
+              <main class="reader-area">
+                <header class="reader-header">
+                  <button class="icon-button" type="button" data-toggle="desktop-library" aria-label="展开学习库">☰</button>
+                  <div class="reader-title">
+                    <strong>蓝皮书与棕皮书</strong>
+                    <small>01.md</small>
+                  </div>
+                  <button class="icon-button" type="button" data-toggle="desktop-sync" aria-label="打开 GitHub 同步">⇅</button>
+                </header>
+                <article class="reader-scroll">
+                  <h1>语言、规则与实际使用</h1>
+                  <p>这是一段用于观察布局的示例正文。真正的学习文章仍然会从 Markdown 文件读取，并在正文末尾接上学习反馈。</p>
+                  <h2>先保留阅读的连续性</h2>
+                  <p>同步功能是偶尔使用的仓库操作，不应该一直占据阅读区或学习库的垂直空间。把它放进右侧按需打开的面板，可以让正文保持完整。</p>
+                  <hr />
+                  <h2>反馈</h2>
+                  <p>阅读结束后，用户仍然可以在文章末尾输入反馈，再决定是否生成下一篇。</p>
+                </article>
+              </main>
+
+              <aside class="sync-sidebar" id="desktop-sync">
+                <header class="panel-header">
+                  <div>
+                    <p class="eyebrow">Versioned Notes</p>
+                    <h3>GitHub 同步</h3>
+                  </div>
+                  <button class="icon-button" type="button" data-toggle="desktop-sync" aria-label="关闭 GitHub 同步">×</button>
+                </header>
+                <div class="sync-content">
+                  <p class="sync-status">● 工作区有 2 个 Markdown 文件待同步</p>
+                  <p class="sync-meta">learn-everything · main<br />同步前会先检查远程仓库状态。</p>
+                  <label for="desktop-message">本次提交说明（可选）</label>
+                  <input id="desktop-message" value="study: save learning notes" />
+                  <button class="sync-action" type="button">同步到 GitHub</button>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="preview-card">
+        <h2>手机端 · 390px 窄屏预览</h2>
+        <p>底部菜单保留三个低频但明确的入口；点击“同步”可以从右侧打开约 68% 宽的同步抽屉。</p>
+        <div class="device-stage">
+          <div class="narrow-screen">
+            <div class="narrow-app">
+              <article class="narrow-reader">
+                <h1>语言、规则与实际使用</h1>
+                <p>这是手机端和 BOOX 端共用的窄屏阅读布局示例。正文优先占据屏幕，控制面板只在需要时出现。</p>
+                <h2>反馈不是第二个文件管理器</h2>
+                <p>你可以在文章末尾写下理解、疑问和下一步方向，然后保存或提交给 AI。</p>
+                <hr />
+                <h2>学习反馈</h2>
+                <p>请在这里写下你的反馈……</p>
+              </article>
+              <div class="narrow-menu">
+                <button type="button">学习库</button>
+                <button type="button">写反馈</button>
+                <button type="button" data-toggle="narrow-sync">同步</button>
+              </div>
+              <section class="narrow-sync-panel" id="narrow-sync" hidden>
+                <header>
+                  <h3>GitHub 同步</h3>
+                  <button class="icon-button" type="button" data-toggle="narrow-sync" aria-label="关闭同步面板">×</button>
+                </header>
+                <p>工作区有 2 个 Markdown 文件待同步。</p>
+                <p>同步前检查远程状态，确认后再推送。</p>
+                <button class="sync-action" type="button">同步到 GitHub</button>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="preview-card">
+        <h2>BOOX Leaf 5 · 1264×1680 原始分辨率比例预览</h2>
+        <p>这里按 0.4 倍缩放成 504×672 CSS 像素；实际网页仍按 ≤900px 的窄屏规则运行。</p>
+        <div class="device-stage">
+          <div class="narrow-screen boox-screen">
+            <div class="narrow-app">
+              <article class="narrow-reader">
+                <h1>蓝皮书与棕皮书</h1>
+                <p>BOOX 上主要负责阅读、输入反馈和必要时的同步。文件整理和复杂管理仍然交给电脑端。</p>
+                <h2>当前文章</h2>
+                <p>这段文字只是占位内容，用来观察大字号、留白和底部菜单在墨水屏比例下的效果。</p>
+                <hr />
+                <h2>继续阅读</h2>
+                <p>菜单按钮保持足够大，不依赖动画和悬停状态。</p>
+              </article>
+              <div class="narrow-menu">
+                <button type="button">学习库</button>
+                <button type="button">写反馈</button>
+                <button type="button" data-toggle="boox-sync">同步</button>
+              </div>
+              <section class="narrow-sync-panel" id="boox-sync" hidden>
+                <header>
+                  <h3>GitHub 同步</h3>
+                  <button class="icon-button" type="button" data-toggle="boox-sync" aria-label="关闭同步面板">×</button>
+                </header>
+                <p>这是从右侧打开的同步抽屉，左侧仍保留当前正文的一部分。</p>
+                <p>工作区有 2 个 Markdown 文件待同步。</p>
+                <button class="sync-action" type="button">同步到 GitHub</button>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      document.querySelectorAll('[data-toggle]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const targetId = button.dataset.toggle;
+          const target = document.getElementById(targetId);
+
+          if (!target) {
+            return;
+          }
+
+          if (targetId === 'desktop-library' || targetId === 'desktop-sync') {
+            const desktop = document.getElementById('desktop-preview');
+            const isHidden = target.hidden;
+            target.hidden = !isHidden;
+            desktop.classList.toggle(`${targetId.replace('desktop-', '')}-hidden`, !isHidden);
+            return;
+          }
+
+          target.hidden = !target.hidden;
+        });
+      });
+    </script>
+  </body>
+</html>
