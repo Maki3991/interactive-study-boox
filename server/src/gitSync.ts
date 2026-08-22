@@ -169,24 +169,36 @@ async function getCurrentBranch(repositoryRoot: string) {
 
 async function getChangedFiles(repositoryRoot: string) {
   const output = await runGit(
-    ['status', '--porcelain=v1', '--untracked-files=all'],
+    [
+      'status',
+      '--porcelain=v1',
+      '--untracked-files=all',
+      '-z',
+    ],
     repositoryRoot,
   )
   const changedFiles = new Set<string>()
 
-  for (const line of output.split(/\r?\n/)) {
-    if (line.length < 4) {
+  // `-z` makes Git return raw, NUL-delimited paths instead of C-style
+  // octal escapes such as `\350\223\235` for Chinese characters.
+  const records = output.split('\0').filter(Boolean)
+
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]
+
+    if (record.length < 4) {
       continue
     }
 
-    const status = line.slice(0, 2)
-    let relativePath = line.slice(3).trim()
+    const status = record.slice(0, 2)
+    const relativePath = record.slice(3)
 
     if (status.includes('R') || status.includes('C')) {
-      const renameSeparator = relativePath.lastIndexOf(' -> ')
+      const oldPath = records[index + 1]
 
-      if (renameSeparator >= 0) {
-        relativePath = relativePath.slice(renameSeparator + 4)
+      if (oldPath) {
+        changedFiles.add(normalizeRelativePath(oldPath))
+        index += 1
       }
     }
 
