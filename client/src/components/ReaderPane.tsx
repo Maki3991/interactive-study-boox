@@ -17,12 +17,14 @@ interface ReaderPaneProps {
   generationRecovery: { changedFiles: string[] } | null
   isRollingBack: boolean
   hasSavedFeedback: boolean
+  syncPanelOpen: boolean
   onFeedbackChange: (value: string) => void
   onSaveFeedback: () => void | Promise<void>
   onGenerateNextLesson: () => void | Promise<void>
   onRollback: () => void | Promise<void>
   onReadingPositionChange: (scrollRatio: number) => void
   onReaderMenuGesture: () => void
+  onToggleSyncPanel: () => void
   onOpenArticle: (articlePath: string) => void | Promise<void>
 }
 
@@ -65,12 +67,14 @@ function ReaderPane({
   generationRecovery,
   isRollingBack,
   hasSavedFeedback,
+  syncPanelOpen,
   onFeedbackChange,
   onSaveFeedback,
   onGenerateNextLesson,
   onRollback,
   onReadingPositionChange,
   onReaderMenuGesture,
+  onToggleSyncPanel,
   onOpenArticle,
 }: ReaderPaneProps) {
   const readerScrollRef = useRef<HTMLDivElement>(null)
@@ -161,7 +165,19 @@ function ReaderPane({
     <section className="reader-pane" aria-label="文章阅读区">
       <header className="reader-header">
         <p className="reader-project-name">{projectName}</p>
-        <p className="reader-file-name">{article.fileName}</p>
+        <div className="reader-header-actions">
+          <p className="reader-file-name">{article.fileName}</p>
+          <button
+            className={`reader-sync-toggle${syncPanelOpen ? ' is-active' : ''}`}
+            type="button"
+            aria-label={syncPanelOpen ? '关闭 GitHub 同步侧栏' : '打开 GitHub 同步侧栏'}
+            aria-expanded={syncPanelOpen}
+            title={syncPanelOpen ? '关闭 GitHub 同步侧栏' : '打开 GitHub 同步侧栏'}
+            onClick={onToggleSyncPanel}
+          >
+            ⇅
+          </button>
+        </div>
       </header>
 
       <div
