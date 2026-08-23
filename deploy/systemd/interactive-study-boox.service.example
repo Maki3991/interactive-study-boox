@@ -1,0 +1,25 @@
+[Unit]
+Description=Interactive Study BOOX API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=studyboox
+Group=studyboox
+WorkingDirectory=/opt/interactive-study-boox/server
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/interactive-study-boox/server.env
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/learn-everything /opt/interactive-study-boox/server/.interactive-study-boox
+
+[Install]
+WantedBy=multi-user.target
