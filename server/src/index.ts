@@ -2,7 +2,7 @@ import express from 'express'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { generateText } from './ai.js'
-import { libraryRoot, writeSafetyRoot } from './config.js'
+import { libraryRoot, serverHost, serverPort, writeSafetyRoot } from './config.js'
 import { buildNextLessonPrompt } from './generationPrompt.js'
 import { GitSyncError, getSyncStatus, pushSync } from './gitSync.js'
 import { buildLearningContext, LearningContextError } from './learningContext.js'
@@ -91,7 +91,6 @@ class GeneratedLessonError extends Error {
 }
 
 const app = express()
-const port = 3001
 const feedbackMarkerPrefix = '<!-- interactive-study-boox:feedback-submission-id='
 const feedbackMarkerSuffix = ' -->'
 const feedbackWriteLocks = new Map<string, Promise<void>>()
@@ -1090,6 +1089,6 @@ app.post('/api/sync/push', async (request, response) => {
   }
 })
 
-app.listen(port, () => {
-  console.log(`Server is listening at http://localhost:${port}`)
+app.listen(serverPort, serverHost, () => {
+  console.log(`Server is listening at http://${serverHost}:${serverPort}`)
 })
