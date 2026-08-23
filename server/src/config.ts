@@ -22,6 +22,21 @@ function parseBoolean(value: string | undefined, defaultValue: boolean) {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+function parsePort(value: string | undefined, defaultValue: number) {
+  const port = Number(value ?? defaultValue)
+
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`Invalid PORT value: ${value}`)
+  }
+
+  return port
+}
+
+export const serverPort = parsePort(process.env.PORT, 3001)
+
+export const serverHost =
+  process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '127.0.0.1' : '0.0.0.0')
+
 export const libraryRoot = path.resolve(
   resolveConfiguredPath(
     process.env.LIBRARY_ROOT,
