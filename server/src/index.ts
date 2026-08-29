@@ -521,7 +521,7 @@ app.get('/api/ai/test', async (_request, response) => {
     const output = await generateText('请只回复：API 连接成功。')
     response.json({ output })
   } catch (error) {
-    console.error('Failed to call OpenAI:', error)
+    console.error('Failed to call the AI provider:', error)
     response.status(500).json({
       message: 'AI test request failed. Check the server terminal for details.',
     })
