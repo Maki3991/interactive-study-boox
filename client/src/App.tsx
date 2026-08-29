@@ -2,14 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import './App.css'
 import {
   generateNextLesson,
+  loadAuthStatus,
   loadArticle,
   loadLibrary,
   loadSyncStatus,
+  login,
+  logout,
   pushSync,
   rollbackGeneration,
   saveFeedback,
 } from './api'
+import type { AuthStatus } from './api'
 import LibraryTree from './components/LibraryTree'
+import LoginScreen from './components/LoginScreen'
 import ReaderMenu from './components/ReaderMenu'
 import ReaderPane from './components/ReaderPane'
 import SyncDrawer from './components/SyncDrawer'
@@ -166,7 +171,11 @@ function createSubmissionId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function App() {
+interface StudyAppProps {
+  onLogout?: () => Promise<void>
+}
+
+function StudyApp({ onLogout }: StudyAppProps) {
   const [libraryEntries, setLibraryEntries] = useState<LibraryEntry[]>([])
   const [isLibraryLoading, setIsLibraryLoading] = useState(true)
   const [libraryError, setLibraryError] = useState<string | null>(null)
@@ -771,15 +780,22 @@ function App() {
             <p className="eyebrow">Interactive Study</p>
             <h1>学习库</h1>
           </div>
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="收起学习库"
-            title="收起学习库"
-            onClick={() => setSidebarOpen(false)}
-          >
-            ‹
-          </button>
+          <div className="library-panel-header-actions">
+            {onLogout && (
+              <button className="text-button auth-logout-button" type="button" onClick={() => void onLogout()}>
+                退出登录
+              </button>
+            )}
+            <button
+              className="icon-button"
+              type="button"
+              aria-label="收起学习库"
+              title="收起学习库"
+              onClick={() => setSidebarOpen(false)}
+            >
+              ‹
+            </button>
+          </div>
         </header>
 
         {renderLibraryContent()}
@@ -838,6 +854,11 @@ function App() {
             ← 返回文章
           </button>
           <h1>学习库</h1>
+          {onLogout && (
+            <button className="auth-logout-button" type="button" onClick={() => void onLogout()}>
+              退出
+            </button>
+          )}
         </header>
 
         {renderLibraryContent()}
@@ -854,6 +875,123 @@ function App() {
       />
     </div>
   )
+}
+
+function App() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState(true)
+  const [isLoggingIn, setIsLoggingIn] = useState(false)
+
+  const checkAuthStatus = async () => {
+    setIsAuthLoading(true)
+    setAuthError(null)
+
+    try {
+      setAuthStatus(await loadAuthStatus())
+    } catch (error) {
+      setAuthStatus(null)
+      setAuthError(getErrorMessage(error, '暂时无法检查登录状态。'))
+    } finally {
+      setIsAuthLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let isCurrentRequest = true
+
+    loadAuthStatus()
+      .then((status) => {
+        if (isCurrentRequest) {
+          setAuthStatus(status)
+        }
+      })
+      .catch((error) => {
+        if (isCurrentRequest) {
+          setAuthStatus(null)
+          setAuthError(getErrorMessage(error, '暂时无法检查登录状态。'))
+        }
+      })
+      .finally(() => {
+        if (isCurrentRequest) {
+          setIsAuthLoading(false)
+        }
+      })
+
+    return () => {
+      isCurrentRequest = false
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setAuthStatus((previousStatus) =>
+        previousStatus
+          ? { ...previousStatus, authenticated: false, expiresAt: null }
+          : previousStatus,
+      )
+      setAuthError('登录状态已失效，请重新登录。')
+    }
+
+    window.addEventListener('interactive-study-boox-auth-expired', handleAuthExpired)
+
+    return () => {
+      window.removeEventListener('interactive-study-boox-auth-expired', handleAuthExpired)
+    }
+  }, [])
+
+  const handleLogin = async (password: string, remember: boolean) => {
+    setIsLoggingIn(true)
+    setAuthError(null)
+
+    try {
+      const result = await login(password, remember)
+      setAuthStatus((previousStatus) => ({
+        authEnabled: previousStatus?.authEnabled ?? true,
+        authenticated: result.authenticated,
+        expiresAt: result.expiresAt,
+      }))
+    } catch (error) {
+      setAuthError(getErrorMessage(error, '登录失败，请稍后重试。'))
+    } finally {
+      setIsLoggingIn(false)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+    } catch (error) {
+      setAuthError(getErrorMessage(error, '退出登录请求失败。'))
+    } finally {
+      setAuthStatus((previousStatus) =>
+        previousStatus
+          ? { ...previousStatus, authenticated: false, expiresAt: null }
+          : previousStatus,
+      )
+    }
+  }
+
+  if (isAuthLoading) {
+    return <main className="auth-state" role="status">正在检查登录状态……</main>
+  }
+
+  if (!authStatus) {
+    return (
+      <main className="auth-state auth-state-error" role="alert">
+        <p>{authError ?? '暂时无法检查登录状态。'}</p>
+        <button className="text-button" type="button" onClick={() => void checkAuthStatus()}>
+          重新检查
+        </button>
+      </main>
+    )
+  }
+
+  if (authStatus.authEnabled && !authStatus.authenticated) {
+    return <LoginScreen error={authError} isSubmitting={isLoggingIn} onSubmit={handleLogin} />
+  }
+
+  return <StudyApp onLogout={authStatus.authEnabled ? handleLogout : undefined} />
 }
 
 export default App
