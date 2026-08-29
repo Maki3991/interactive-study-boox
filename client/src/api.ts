@@ -13,23 +13,71 @@ const apiBasePath = '/api'
 
 interface ApiErrorResponse {
   message?: string
+  code?: string
   error?: {
     message?: string
   }
 }
 
+export interface AuthStatus {
+  authEnabled: boolean
+  authenticated: boolean
+  expiresAt: number | null
+}
+
+export interface LoginResponse {
+  authenticated: boolean
+  expiresAt: number
+  remember: boolean
+}
+
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code?: string
+
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+    this.code = code
+  }
+}
+
 async function requestJson<T>(requestPath: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBasePath}${requestPath}`, init)
+  const response = await fetch(`${apiBasePath}${requestPath}`, {
+    credentials: 'same-origin',
+    ...init,
+  })
 
   if (!response.ok) {
     const errorResponse = (await response.json().catch(() => null)) as ApiErrorResponse | null
     const message =
       errorResponse?.message ?? errorResponse?.error?.message ?? `请求失败（${response.status}）`
 
-    throw new Error(message)
+    if (response.status === 401 && !requestPath.startsWith('/auth/')) {
+      window.dispatchEvent(new Event('interactive-study-boox-auth-expired'))
+    }
+
+    throw new ApiRequestError(message, response.status, errorResponse?.code)
   }
 
   return (await response.json()) as T
+}
+
+export function loadAuthStatus() {
+  return requestJson<AuthStatus>('/auth/status')
+}
+
+export function login(password: string, remember: boolean) {
+  return requestJson<LoginResponse>('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password, remember }),
+  })
+}
+
+export function logout() {
+  return requestJson<{ authenticated: false }>('/auth/logout', { method: 'POST' })
 }
 
 export function loadLibrary() {

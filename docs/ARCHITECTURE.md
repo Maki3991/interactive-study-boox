@@ -1,8 +1,8 @@
 # Architecture
 
-> 版本：v0.6
-> 更新日期：2026-08-21
-> 当前状态：P0/P0.1 已完成；P1 VPS 远程访问、私有学习库与手动 GitHub 同步方案暂定
+> 版本：v0.7
+> 更新日期：2026-08-29
+> 当前状态：P0/P0.1 已完成；P1 VPS 远程访问、私有学习库与手动 GitHub 同步方案暂定；单用户应用会话已在功能分支实现，尚未部署
 
 ## 1. 开发阶段
 
@@ -49,7 +49,7 @@ P0 的技术栈已经确认；P1 的 VPS、Git 同步和访问控制仍标记为
 - 版本同步：P1 暂定使用 VPS 上的 Git CLI，用户主动同步时一次性 commit 并 push
 - 数据库：P0/P1 暂不使用数据库
 - AI：后端通过 OpenAI API 调用；密钥保存在服务端 `.env`，模型由 `OPENAI_MODEL` 配置，默认使用 `gpt-5`
-- 远程访问：P1 暂定通过 HTTPS 暴露后端；访问鉴权方式仍待确认
+- 远程访问：P1 暂定通过 HTTPS 暴露后端；当前 VPS 仍使用 Nginx Basic Auth，应用内单用户会话已作为后续替代方案实现
 - BOOX App：P2 再评估 Android WebView 或其他包装方案
 
 ## 3. P0 架构边界
@@ -79,6 +79,15 @@ P0 的技术栈已经确认；P1 的 VPS、Git 同步和访问控制仍标记为
 - 远程仓库领先、工作区存在冲突或 push 失败时不执行强制覆盖；先返回状态供页面处理。
 - P1 不因为 Git 版本历史而引入 SQL 数据库；数据库只有在多用户、统计、复杂查询或更复杂同步需求出现时重新评估。
 
+### 3.2 单用户应用会话（当前功能分支）
+
+- `AUTH_ENABLED` 默认关闭；只有服务端明确配置后，前端才显示应用登录页，因此当前已有环境不会被突然锁定。
+- 个人登录密码只以 scrypt 哈希形式保存于服务端环境变量 `AUTH_PASSWORD_HASH`，不进入前端、Markdown 或 Git。
+- 登录成功后由后端保存内存会话，浏览器只保存 `HttpOnly`、`SameSite=Lax` Cookie；勾选“记住 7 天”时 Cookie 设置 7 天有效期，否则为 8 小时浏览器会话。
+- `/api/health` 和 `/api/auth/*` 保持可访问；学习库、文章、反馈、生成和 Git 同步接口统一经过应用会话校验。
+- 当前会话保存在 Node 进程内存中，服务重启会让已有登录失效；这是个人单实例 MVP 的暂定方案，扩展多实例前再评估持久化会话存储。
+- 生产环境默认要求 `AUTH_COOKIE_SECURE=true`，因此必须在 HTTPS 可用后再启用应用登录。
+
 ## 4. 计划中的代码职责
 
 ```text
@@ -101,14 +110,22 @@ P1 用户主动点击同步时调用 VPS Git CLI
 
 ```text
 interactive-study-boox/
-├── client/        # React 页面、Markdown 展示、反馈输入和按钮
-├── server/        # Express API、文件读写、AI 调用和配置
+├── client/        # React 页面、Markdown 展示、登录、反馈输入和按钮
+├── server/        # Express API、文件读写、AI 调用、登录和配置
 ├── docs/          # PRD、架构和开发状态
 ├── AGENTS.md
 └── README.md
 ```
 
 实际初始化时可以根据脚手架生成结果微调文件位置，但应保留清楚的前后端职责边界。
+
+当前应用会话相关职责位于：
+
+- `client/src/components/LoginScreen.tsx`：显示密码输入、记住登录选项和登录错误。
+- `client/src/api.ts`：封装登录状态、登录和退出请求，并为失效会话发出前端事件。
+- `client/src/App.tsx`：根据登录状态决定显示登录页还是学习阅读器。
+- `server/src/auth.ts`：生成/校验 scrypt 密码哈希、创建内存会话、设置 Cookie 和拦截受保护 API。
+- `server/src/generateAuthHash.ts`：在服务端终端交互生成 `AUTH_PASSWORD_HASH`，不回显明文密码。
 
 ## 5. 核心数据流
 

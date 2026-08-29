@@ -1,8 +1,8 @@
 # Data Model and API
 
-> 版本：v0.6
-> 更新日期：2026-08-21
-> 当前状态：P0/P0.1 数据与 API 已完成核心实现；P1 远程工作区和手动 GitHub 同步接口暂定
+> 版本：v0.7
+> 更新日期：2026-08-29
+> 当前状态：P0/P0.1 数据与 API 已完成核心实现；P1 远程工作区和手动 GitHub 同步接口暂定；单用户应用会话已在功能分支实现
 
 ## 1. 文档目的
 
@@ -38,6 +38,8 @@
 | GitHub 私有学习库 | `learn-everything` | P1 的长期版本历史；只在用户主动同步时产生 commit |
 | Git 同步状态 | VPS 工作区的 Git 状态 | P1 动态计算未同步文件、ahead/behind 和冲突，不单独建立数据库表 |
 | OpenAI/GitHub 凭据 | VPS 密钥或环境变量 | 不进入 Markdown、Git commit、API 响应或客户端 |
+| 应用登录密码 | 服务端环境变量 `AUTH_PASSWORD_HASH` | 只保存 scrypt 哈希，不保存明文密码；未启用应用登录时不读取为登录条件 |
+| 应用登录会话 | Node 进程内存中的会话 Map + 浏览器 Cookie | Cookie 只携带随机会话令牌；服务重启后会话失效，当前不使用数据库 |
 
 ## 3. 学习库文件模型
 
@@ -345,6 +347,9 @@ interface SyncPushResponse {
 
 | 用户动作 | 方法 | 路径 | 后端职责 |
 | --- | --- | --- | --- |
+| 查询应用登录状态 | `GET` | `/api/auth/status` | 返回应用登录开关、当前会话状态和过期时间 |
+| 登录应用 | `POST` | `/api/auth/login` | 校验密码并设置安全会话 Cookie |
+| 退出应用 | `POST` | `/api/auth/logout` | 删除服务端会话并清除 Cookie |
 | 查看当前配置 | `GET` | `/api/config` | 返回学习库、最近文章和自动续读位置 |
 | 设置学习库 | `PUT` | `/api/config/library` | 校验并保存学习库路径 |
 | 获取学习库列表 | `GET` | `/api/library` | 递归扫描文件夹和 Markdown 文件 |
@@ -359,6 +364,48 @@ interface SyncPushResponse {
 | 手动同步到 GitHub（P1 暂定） | `POST` | `/api/sync/push` | 一次性提交允许范围内的修改并推送到私有仓库 |
 
 ## 6. API 详细约定
+
+### 6.0 应用登录（当前功能分支）
+
+应用登录由服务端环境变量控制。`AUTH_ENABLED=false` 时，登录接口仍存在但不会要求密码，现有本地或临时部署行为保持不变。
+
+查询状态：
+
+```http
+GET /api/auth/status
+```
+
+成功响应：
+
+```json
+{
+  "authEnabled": true,
+  "authenticated": false,
+  "expiresAt": null
+}
+```
+
+登录请求：
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{
+  "password": "用户输入的密码",
+  "remember": true
+}
+```
+
+密码由服务端与 `AUTH_PASSWORD_HASH` 中的 scrypt 哈希比对。成功后服务端保存随机会话令牌的哈希，并通过 `HttpOnly`、`SameSite=Lax` Cookie 把随机令牌交给浏览器；`remember=true` 时 Cookie 和服务端会话默认有效 7 天，否则为 8 小时浏览器会话。生产环境默认追加 `Secure`，所以应用登录必须运行在 HTTPS 上。
+
+退出请求：
+
+```http
+POST /api/auth/logout
+```
+
+除 `GET /api/health` 与 `/api/auth/*` 外，其余 `/api` 接口都经过会话校验；未登录时返回 `401 AUTH_REQUIRED`。当前会话只存在于单个 Node 进程内存中，服务重启后需要重新登录。
 
 ### 6.1 获取应用配置
 
