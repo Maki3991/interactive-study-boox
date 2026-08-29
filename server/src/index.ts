@@ -2,6 +2,7 @@ import express from 'express'
 import { readFile, readdir, stat } from 'node:fs/promises'
 import * as path from 'node:path'
 import { generateText } from './ai.js'
+import { getAuthStatus, login, logout, requireAuth } from './auth.js'
 import { libraryRoot, serverHost, serverPort, writeSafetyRoot } from './config.js'
 import { buildNextLessonPrompt } from './generationPrompt.js'
 import { GitSyncError, getSyncStatus, pushSync } from './gitSync.js'
@@ -515,6 +516,57 @@ function getGenerationFailure(error: unknown, operation: GenerationOperation) {
 app.get('/api/health', (_request, response) => {
   response.json({ status: 'ok' })
 })
+
+app.get('/api/auth/status', (request, response) => {
+  response.setHeader('Cache-Control', 'no-store')
+  response.json(getAuthStatus(request))
+})
+
+app.post('/api/auth/login', async (request, response) => {
+  const body = request.body as { password?: unknown; remember?: unknown } | undefined
+
+  if (typeof body?.password !== 'string') {
+    response.status(400).json({ message: '请输入登录密码。' })
+    return
+  }
+
+  try {
+    const result = await login(request, response, body.password, body.remember === true)
+
+    response.setHeader('Cache-Control', 'no-store')
+    response.json({
+      authenticated: true,
+      expiresAt: result.expiresAt,
+      remember: result.remember,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'InvalidPasswordError') {
+      response.status(401).json({ message: error.message, code: 'INVALID_PASSWORD' })
+      return
+    }
+
+    if (error instanceof Error && error.name === 'LoginRateLimitedError') {
+      response.status(429).json({ message: error.message, code: 'LOGIN_RATE_LIMITED' })
+      return
+    }
+
+    if (error instanceof Error && error.name === 'AuthConfigurationError') {
+      response.status(503).json({ message: error.message, code: 'AUTH_NOT_CONFIGURED' })
+      return
+    }
+
+    console.error('Failed to create an authenticated session:', error)
+    response.status(500).json({ message: '暂时无法登录，请检查服务端配置。' })
+  }
+})
+
+app.post('/api/auth/logout', (request, response) => {
+  logout(request, response)
+  response.setHeader('Cache-Control', 'no-store')
+  response.json({ authenticated: false })
+})
+
+app.use('/api', requireAuth)
 
 app.get('/api/ai/test', async (_request, response) => {
   try {
