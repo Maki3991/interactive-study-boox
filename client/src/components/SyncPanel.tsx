@@ -5,17 +5,20 @@ export interface SyncPanelProps {
   status: SyncStatus | null
   isLoading: boolean
   isSyncing: boolean
+  isPulling: boolean
   commitMessage: string
   notice: { kind: 'success' | 'error'; message: string } | null
   onCommitMessageChange: (value: string) => void
   onRefresh: () => void | Promise<unknown>
   onSync: () => void | Promise<void>
+  onPull: () => void | Promise<void>
 }
 
 const stateLabels: Record<SyncState, string> = {
   disabled: '未启用',
   clean: '已同步',
   pending: '有待同步修改',
+  'remote-ahead': '有远程更新',
   conflict: '需要人工处理',
   offline: '暂时不可用',
 }
@@ -24,17 +27,25 @@ function SyncPanel({
   status,
   isLoading,
   isSyncing,
+  isPulling,
   commitMessage,
   notice,
   onCommitMessageChange,
   onRefresh,
   onSync,
+  onPull,
 }: SyncPanelProps) {
   const panelId = useId()
   const headingId = `sync-panel-heading-${panelId}`
   const commitMessageId = `sync-commit-message-${panelId}`
   const state = status?.state ?? 'offline'
-  const canSync = state === 'pending' && !isSyncing
+  const canSync = state === 'pending' && !isSyncing && !isPulling
+  const canPull =
+    state === 'remote-ahead' &&
+    (status?.behind ?? 0) > 0 &&
+    !isLoading &&
+    !isSyncing &&
+    !isPulling
   const visibleFiles = status?.changedFiles.slice(0, 5) ?? []
   const hiddenFileCount = Math.max((status?.changedFiles.length ?? 0) - visibleFiles.length, 0)
 
@@ -48,7 +59,7 @@ function SyncPanel({
         <button
           className="text-button"
           type="button"
-          disabled={isLoading || isSyncing}
+          disabled={isLoading || isSyncing || isPulling}
           onClick={() => void onRefresh()}
         >
           {isLoading ? '检查中……' : '检查状态'}
@@ -107,6 +118,15 @@ function SyncPanel({
         onClick={() => void onSync()}
       >
         {isSyncing ? '正在同步……' : state === 'pending' ? '同步到 GitHub' : '暂无可同步修改'}
+      </button>
+
+      <button
+        className="secondary-button sync-button"
+        type="button"
+        disabled={!canPull}
+        onClick={() => void onPull()}
+      >
+        {isPulling ? '正在从 GitHub 拉取……' : canPull ? `从 GitHub 拉取 ${status?.behind} 个更新` : '暂无可拉取更新'}
       </button>
 
       {notice && (

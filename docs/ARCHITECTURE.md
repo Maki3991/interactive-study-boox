@@ -46,7 +46,7 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 - 学习内容：P0 本地 Markdown 文件；P1 VPS 上私有仓库工作副本中的 Markdown 文件
 - 文件读写：Node.js 文件系统 API
 - 简单应用状态：JSON 配置文件
-- 版本同步：P1 暂定使用 VPS 上的 Git CLI，用户主动同步时一次性 commit 并 push
+- 版本同步：P1 使用 VPS 上的 Git CLI；用户可以主动 push 本地 Markdown 修改，也可以在工作区干净且历史可快进时 pull GitHub 更新
 - 数据库：P0/P1 暂不使用数据库
 - AI：后端通过 OpenAI API 调用；密钥保存在服务端 `.env`，模型由 `OPENAI_MODEL` 配置，默认使用 `gpt-5`
 - 远程访问：P1 暂定通过 HTTPS 暴露后端；当前 VPS 仍使用 Nginx Basic Auth，应用内单用户会话已作为后续替代方案实现
@@ -231,24 +231,20 @@ Express 校验学习库边界和请求字段
 ### 5.6 P1 手动同步到 GitHub（暂定）
 
 ```text
-用户点击“同步到 GitHub”
+用户打开同步面板并点击“检查状态”
   ↓
-前端请求 GET /api/sync/status（可选，先展示待同步文件）
-  ↓
-前端请求 POST /api/sync/push
-  ↓
-后端检查工作区、当前分支和远程是否领先
-  ↓
-只暂存允许同步的学习 Markdown 文件
-  ↓
-一次 git commit，包含本次所有修改
-  ↓
-一次 git push 到私有 learn-everything 仓库
-  ↓
-返回 commit、同步文件和下一次状态
+前端请求 GET /api/sync/status?refresh=1，后端 fetch 远程状态
+  ├─ VPS 有本地 Markdown 修改 → 用户可以点击“同步到 GitHub”
+  │    ↓
+  │  POST /api/sync/push → 暂存允许同步的 Markdown → 一次 commit → push
+  └─ GitHub 领先且 VPS 工作区干净 → 用户可以点击“从 GitHub 拉取”
+       ↓
+     POST /api/sync/pull → 检查历史 → 只执行 git merge --ff-only
+       ↓
+     刷新 VPS 学习工作区和页面目录
 ```
 
-同步按钮不是逐文件上传接口。P1 暂定以 VPS 本地 clone 加 Git CLI 实现，便于一次操作产生一个有意义的 commit；如果远程领先或检测到冲突，后端返回 `409`，不执行强制 push。远程手动编辑、拉取策略和冲突解决界面留待后续确认。
+同步按钮不是逐文件上传接口。P1 以 VPS 本地 clone 加 Git CLI 实现，便于一次操作产生一个有意义的 commit。拉取只允许工作区干净、VPS 没有本地领先提交、远程更新只包含允许的 Markdown 且历史可以快进的情况；如果存在本地修改、双方各有提交、非 Markdown 远程文件或其他冲突，后端返回 `409`，不执行强制覆盖，仍需人工处理。
 
 ## 6. 当前电脑开发环境
 
@@ -272,8 +268,8 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 - 生成提示词的最终文本和原文映射是否细化到 Markdown 标题。
 - 不规范文章文件名的下一篇编号规则。
 - `LIBRARY_ROOT` 与私有 `learn-everything` 工作副本的配置接口和更换策略。
-- 允许同步的文件范围和远程领先时的长期处理策略仍需继续确认；两个同步接口已经实现并完成基本验证。
-- GitHub 远程领先时采用手动拉取、只允许快进，还是增加冲突解决界面。
+- 允许同步的文件范围和复杂冲突的长期处理策略仍需继续确认；push 与只读快进 pull 接口已经实现。
+- GitHub 双方各有提交时仍采用人工合并，暂不在个人学习应用中加入在线冲突解决器。
 - VPS 正式远程访问保留 Nginx Basic Auth，还是在 HTTPS 后迁移到已实现的单用户应用登录。
 - Android APK 的具体包装技术，以及生产环境 API 地址配置。
 - Leaf 5 真机上的 Markdown 渲染和输入法兼容性。

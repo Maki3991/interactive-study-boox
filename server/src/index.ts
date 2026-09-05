@@ -5,7 +5,7 @@ import { generateText } from './ai.js'
 import { getAuthStatus, login, logout, requireAuth } from './auth.js'
 import { libraryRoot, serverHost, serverPort, writeSafetyRoot } from './config.js'
 import { buildNextLessonPrompt } from './generationPrompt.js'
-import { GitSyncError, getSyncStatus, pushSync } from './gitSync.js'
+import { GitSyncError, getSyncStatus, pullSync, pushSync } from './gitSync.js'
 import { buildLearningContext, LearningContextError } from './learningContext.js'
 import {
   GenerationOperation,
@@ -1109,8 +1109,9 @@ app.post('/api/feedback', async (request, response) => {
   }
 })
 
-app.get('/api/sync/status', async (_request, response) => {
-  response.json(await getSyncStatus())
+app.get('/api/sync/status', async (request, response) => {
+  const refreshRemote = request.query.refresh === '1' || request.query.refresh === 'true'
+  response.json(await getSyncStatus(refreshRemote))
 })
 
 app.post('/api/sync/push', async (request, response) => {
@@ -1135,6 +1136,32 @@ app.post('/api/sync/push', async (request, response) => {
       error: {
         code: 'GIT_SYNC_FAILED',
         message: '同步学习资料失败，请检查服务端日志。',
+        recoverable: true,
+      },
+    })
+  }
+})
+
+app.post('/api/sync/pull', async (_request, response) => {
+  try {
+    response.json(await pullSync())
+  } catch (error) {
+    if (error instanceof GitSyncError) {
+      response.status(error.status).json({
+        error: {
+          code: error.code,
+          message: error.message,
+          recoverable: error.status >= 500,
+        },
+      })
+      return
+    }
+
+    console.error('Failed to pull the learning repository:', error)
+    response.status(500).json({
+      error: {
+        code: 'GIT_PULL_FAILED',
+        message: '拉取学习资料失败，请检查服务端日志。',
         recoverable: true,
       },
     })

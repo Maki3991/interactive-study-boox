@@ -543,6 +543,10 @@
   background: #8a6a29;
 }
 
+.sync-state-remote-ahead .sync-state-dot {
+  background: #8a6a29;
+}
+
 .sync-state-conflict .sync-state-dot,
 .sync-state-offline .sync-state-dot {
   background: #7a3b3b;

@@ -90,7 +90,7 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - 用户点击“同步到 GitHub”时，一次性提交自上次同步以来允许同步的 Markdown 修改，并推送一个 commit。
 - 首版不使用 SQL 数据库；同步状态由 Git 工作区动态计算，运行时操作记录仍保存在服务端忽略目录。
 - 已增加 `server/src/config.ts`：支持 `LIBRARY_ROOT`、`WRITE_SAFETY_ROOT`、`GIT_SYNC_ENABLED`、`GIT_SYNC_REMOTE` 和 `GIT_SYNC_BRANCH`。
-- 已增加 `server/src/gitSync.ts` 与两个后端接口：`GET /api/sync/status`、`POST /api/sync/push`。
+- 已增加 `server/src/gitSync.ts` 与同步接口：`GET /api/sync/status`、`POST /api/sync/push`、`POST /api/sync/pull`；同步面板支持刷新远程状态和安全快进拉取。
 - 已完成公开代码仓库首轮边界审计：当前公开分支不包含真实 `sample-library` 内容、`.env`、密钥或运行时记录；真实学习资料继续保存在私有 `learn-everything` 仓库。
 - 已在本地验证 `GET /api/health`、`GET /api/library` 和 `GET /api/article`。
 - 已补充并部署生产 `build/start` 脚本、`HOST/PORT` 配置、systemd 服务和 Nginx Basic Auth 反向代理配置。
@@ -102,6 +102,7 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - VPS 直接访问 `api.openai.com` 的 IPv4 HTTPS 请求曾超时；下一步应测试 VPS 到已验证的百炼/Qwen 兼容 API 的出站连接，再决定生产环境 AI 服务配置。
 - 已用临时 Git 仓库验证多文件一次 commit/push、Markdown 文件白名单、不允许文件拦截和远程领先冲突保护。
 - 已将同步状态面板接入电脑端右侧栏和手机/BOOX 窄屏同步抽屉。
+- 已补充 GitHub → VPS 的可视化拉取：仅允许工作区干净、历史可快进且远程更新为允许的 Markdown；本地修改、分叉历史和非 Markdown 更新会被 `409` 阻止，不执行强制覆盖。
 - 已在本地 `learn-everything` 工作区完成真实测试：中文目录下的 Markdown 修改能够被识别，并能由后端合并为一个 commit 推送到 GitHub 私有仓库。
 - 已修复 Git 中文路径被八进制转义后误判为不允许同步的问题。
 - GitHub 同步 UI 与中文路径修复已经分别通过 Pull Request 合并到程序仓库 `main`。

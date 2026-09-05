@@ -6,6 +6,7 @@ import type {
   SaveFeedbackRequest,
   SaveFeedbackResponse,
   SyncPushResponse,
+  SyncPullResponse,
   SyncStatus,
 } from './types'
 
@@ -113,8 +114,8 @@ export function rollbackGeneration(operationId: string) {
   )
 }
 
-export function loadSyncStatus() {
-  return requestJson<SyncStatus>('/sync/status')
+export function loadSyncStatus(refreshRemote = false) {
+  return requestJson<SyncStatus>(`/sync/status${refreshRemote ? '?refresh=1' : ''}`)
 }
 
 export function pushSync(message?: string) {
@@ -123,4 +124,8 @@ export function pushSync(message?: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message }),
   })
+}
+
+export function pullSync() {
+  return requestJson<SyncPullResponse>('/sync/pull', { method: 'POST' })
 }
