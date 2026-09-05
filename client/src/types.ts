@@ -88,11 +88,16 @@ export interface SaveFeedbackResponse {
   alreadySaved: boolean
 }
 
+export type LessonRoute = 'advance' | 'supplement'
+
 export interface GeneratedArticleSummary {
   fileName: string
   title: string
   relativePath: string
   kind: 'lesson'
+  route: LessonRoute
+  routeReason: string
+  sourceRefs: string[]
 }
 
 export interface GenerateNextLessonResponse {

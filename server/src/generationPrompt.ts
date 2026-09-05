@@ -1,5 +1,6 @@
 import * as path from 'node:path'
 import type { LearningContext, SourceReference } from './learningContext.js'
+import type { LessonRouteDecision } from './learningRoute.js'
 
 const learningRules = `你负责生成一篇基于原始书籍材料的互动学习文章。
 
@@ -32,6 +33,25 @@ const learningRules = `你负责生成一篇基于原始书籍材料的互动学
 
 请写在这行下面：`
 
+const routeDecisionRules = `你负责判断互动学习的下一步路径，不负责写学习文章。
+
+请根据学习计划、当前文章和用户反馈，在以下两种路径中选择一种：
+
+- advance：用户已经基本理解，或者明确希望继续推进主线；进入下一组相关原文。
+- supplement：用户没有理解、提出了具体卡点，或者需要一个更小的例子和补充解释；暂时围绕当前问题补充。
+
+请优先依据用户的真实反馈。反馈很少时，可以选择 advance，但保持小步推进。
+请只从“原文索引”中选择 1 到 4 个原文路径。不要创造文件，不要选择 sources/ 之外的路径。
+
+只输出 JSON，不要输出 Markdown、解释文字或代码围栏：
+
+{
+  "route": "advance" 或 "supplement",
+  "reason": "用一句话说明判断依据",
+  "focus": "下一篇的教学重点",
+  "sourceRefs": ["sources/…….md"]
+}`
+
 function getLibrarySourcePath(context: LearningContext, sourceRef: SourceReference) {
   return path.posix.join(context.projectRelativePath, sourceRef.relativePath)
 }
@@ -40,10 +60,11 @@ function formatSourceSection(
   context: LearningContext,
   title: string,
   sourceRefs: SourceReference[],
+  sourceFiles = context.sourceFiles,
 ) {
   const blocks = sourceRefs.map((sourceRef) => {
     const libraryPath = getLibrarySourcePath(context, sourceRef)
-    const sourceFile = context.sourceFiles.find((file) => file.relativePath === libraryPath)
+    const sourceFile = sourceFiles.find((file) => file.relativePath === libraryPath)
 
     if (!sourceFile) {
       throw new Error(`Missing source content for ${sourceRef.relativePath}`)
@@ -57,17 +78,47 @@ function formatSourceSection(
   return `## ${title}\n\n${blocks.join('\n\n')}`
 }
 
-export function buildNextLessonPrompt(context: LearningContext, feedback: string) {
+function formatSourceReferenceList(sourceRefs: SourceReference[]) {
+  return sourceRefs.length > 0
+    ? sourceRefs.map((sourceRef) => `- ${sourceRef.relativePath}`).join('\n')
+    : '（当前学习计划没有预先指定下一篇原文，由你根据原文索引选择。）'
+}
+
+export function buildLessonRoutePrompt(context: LearningContext, feedback: string) {
+  const sourceIndex = context.sourceIndexFile?.markdown ?? '（未找到原文索引。）'
+
+  return [
+    routeDecisionRules,
+    `## 学习计划\n\n${context.planFile.markdown}`,
+    `## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${context.currentArticle.markdown}`,
+    `## 用户本轮反馈\n\n<user_feedback>\n${feedback}\n</user_feedback>`,
+    formatSourceSection(context, '当前文章对应的原始材料', context.currentSourceRefs),
+    `## 学习计划给出的下一篇候选原文\n\n${formatSourceReferenceList(context.nextSourceRefs)}`,
+    `## 原文索引\n\n<source_index>\n${sourceIndex}\n</source_index>`,
+    '请先完成路径判断。',
+  ].join('\n\n')
+}
+
+export function buildNextLessonPrompt(
+  context: LearningContext,
+  feedback: string,
+  decision: LessonRouteDecision,
+  selectedSourceFiles: LearningContext['sourceFiles'],
+) {
   const nextFileName = path.posix.basename(context.nextArticlePath)
+  const routeLabel = decision.route === 'supplement' ? '补充当前问题' : '推进学习主线'
 
   return [
     learningRules,
     `本次要生成的文件名：${nextFileName}`,
+    `本次路径：${routeLabel}`,
+    `路径判断依据：${decision.reason}`,
+    `本次教学重点：${decision.focus}`,
     `\n## 学习计划\n\n${context.planFile.markdown}`,
     `\n## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${context.currentArticle.markdown}`,
     `\n## 用户本轮反馈\n\n<user_feedback>\n${feedback}\n</user_feedback>`,
     formatSourceSection(context, '当前文章对应的原始材料', context.currentSourceRefs),
-    formatSourceSection(context, '下一篇候选原始材料', context.nextSourceRefs),
-    '请根据以上材料生成下一篇学习文章。',
+    formatSourceSection(context, '本次选择的原始材料', decision.sourceRefs, selectedSourceFiles),
+    `请根据以上材料生成下一篇学习文章。本篇应当${routeLabel}，并具体回应用户反馈。`,
   ].join('\n\n')
 }

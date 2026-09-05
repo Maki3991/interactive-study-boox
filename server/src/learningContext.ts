@@ -24,6 +24,7 @@ export interface LearningContext {
   nextArticlePath: string
   nextArticleAbsolutePath: string
   nextSourceRefs: SourceReference[]
+  sourceIndexFile: ContextFile | null
   sourceFiles: ContextFile[]
 }
 
@@ -228,7 +229,7 @@ async function readContextFile(
   return { role, relativePath, absolutePath, markdown }
 }
 
-async function readSourceFiles(
+export async function readSourceFiles(
   libraryRoot: string,
   projectRoot: string,
   sourceRefs: SourceReference[],
@@ -289,7 +290,19 @@ export async function buildLearningContext(libraryRoot: string, requestedArticle
   const currentProjectArticlePath = toPosixPath(path.relative(projectRoot, resolvedArticle.absolutePath))
   const nextArticlePath = getNextLessonPath(projectRoot, resolvedArticle.absolutePath)
   const currentSourceRefs = getRequiredMapping(mappings, currentProjectArticlePath, '当前文章')
-  const nextSourceRefs = getRequiredMapping(mappings, nextArticlePath, '下一篇文章')
+  const nextSourceRefs = mappings.get(normalizeRelativePath(nextArticlePath)) ?? []
+  const sourceIndexAbsolutePath = path.join(projectRoot, 'sources', '00-原文索引.md')
+  const sourceIndexFile = (await isRegularFile(sourceIndexAbsolutePath))
+    ? await readContextFile('source', libraryRoot, sourceIndexAbsolutePath)
+    : null
+
+  if (nextSourceRefs.length === 0 && sourceIndexFile === null) {
+    throw makeContextError(
+      'SOURCE_MAPPING_NOT_FOUND',
+      '下一篇文章没有原文映射，且当前项目缺少 sources/00-原文索引.md。',
+    )
+  }
+
   const sourceFiles = await readSourceFiles(libraryRoot, projectRoot, [
     ...currentSourceRefs,
     ...nextSourceRefs,
@@ -304,6 +317,7 @@ export async function buildLearningContext(libraryRoot: string, requestedArticle
     nextArticlePath: path.posix.join(projectRelativePath, nextArticlePath),
     nextArticleAbsolutePath: path.resolve(projectRoot, nextArticlePath),
     nextSourceRefs,
+    sourceIndexFile,
     sourceFiles,
   } satisfies LearningContext
 }
