@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Interactive Study</string>
+    <string name="title_activity_main">Interactive Study</string>
+    <string name="package_name">xyz.maki3991.interactivestudy</string>
+    <string name="custom_url_scheme">xyz.maki3991.interactivestudy</string>
+</resources>

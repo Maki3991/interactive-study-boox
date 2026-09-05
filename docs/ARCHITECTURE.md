@@ -1,8 +1,8 @@
 # Architecture
 
-> 版本：v0.7
-> 更新日期：2026-08-29
-> 当前状态：P0/P0.1 已完成；P1 本地同步闭环和 VPS 临时 HTTP 部署已验证；单用户应用会话已合并到 `main` 并完成本地验证，尚未部署到 VPS；HTTPS 和生产访问方案仍待完成
+> 版本：v0.9
+> 更新日期：2026-09-05
+> 当前状态：P0/P0.1 已完成；P1 本地同步闭环、VPS HTTPS 远程阅读和自适应生成链已完成；P2 远程 WebView APK Release 版已构建；项目暂时归档，进入真实使用观察期
 
 ## 1. 开发阶段
 
@@ -32,9 +32,19 @@ P0 验证完成后，先把后端部署到具有持久化磁盘的 VPS：
 
 P1 使用现有阅读、反馈和 AI 生成链路；新增的是可配置工作区、Git 状态查询和手动同步。客户端不直接访问 GitHub，也不保存 OpenAI API Key 或 GitHub 凭据。
 
-### P2：Android APK
+### P2：远程 WebView Android APK（首版已实施）
 
-P2 再评估把访问远程 API 的 Web 客户端封装成 Android APK，具体采用 WebView、Capacitor 或其他技术仍待确认。
+P2 不把整个学习库或前端构建产物固定复制进 APK，而是用 Capacitor Android 外壳加载远程 HTTPS 网站：
+
+```text
+BOOX 上的 APK
+    ↓ 原生 WebView 外壳
+https://www.maki3991.xyz
+    ↓ HTTPS
+Nginx → Express API → VPS 上的 learn-everything 工作区
+```
+
+原生外壳负责沉浸式全屏、无浏览器工具栏、返回行为、下拉刷新和 BOOX 触摸适配；网页阅读、反馈、AI 生成、学习资料和 Git 同步仍由现有 Web/VPS 链路负责。普通网页、后端或 Markdown 更新不需要重新安装 APK；只有原生外壳本身变化时才重新打包。
 
 ## 2. 技术栈与运行方案
 
@@ -49,8 +59,8 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 - 版本同步：P1 使用 VPS 上的 Git CLI；用户可以主动 push 本地 Markdown 修改，也可以在工作区干净且历史可快进时 pull GitHub 更新
 - 数据库：P0/P1 暂不使用数据库
 - AI：后端通过 OpenAI API 调用；密钥保存在服务端 `.env`，模型由 `OPENAI_MODEL` 配置，默认使用 `gpt-5`
-- 远程访问：P1 暂定通过 HTTPS 暴露后端；当前 VPS 仍使用 Nginx Basic Auth，应用内单用户会话已作为后续替代方案实现
-- BOOX App：P2 再评估 Android WebView 或其他包装方案
+- 远程访问：P1 当前通过 HTTPS 暴露后端；当前 VPS 使用 Nginx Basic Auth，应用内单用户会话已作为后续替代方案实现
+- Android 外壳：P2 使用 Capacitor Android；默认通过远程 HTTPS URL 加载网站，不把 API Key、GitHub 凭据或 Basic Auth 密码放入 APK
 
 ## 3. P0 架构边界
 
@@ -79,14 +89,24 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 - 远程仓库领先、工作区存在冲突或 push 失败时不执行强制覆盖；先返回状态供页面处理。
 - P1 不因为 Git 版本历史而引入 SQL 数据库；数据库只有在多用户、统计、复杂查询或更复杂同步需求出现时重新评估。
 
-### 3.2 单用户应用会话（已合并到 main，生产启用待定）
+### 3.2 P2 Android 外壳边界
+
+- APK 是远程网站的原生容器，不是第二套学习库，也不直接访问 GitHub。
+- WebView 只加载允许的 HTTPS 网站；不使用浏览器地址栏、主页键、书签栏或外部浏览器作为主要阅读界面。
+- 下拉刷新由原生层处理；页面刷新后重新读取当前 VPS 版本。
+- WebView 需要保留安全的 Cookie、会话和必要的本地存储，但不在 APK 中硬编码服务端密码或 API Key。
+- 当前保留 Nginx Basic Auth；Android 外壳通过 WebView 的 HTTP Basic Auth 回调弹出原生用户名/密码框，不把凭据硬编码进 APK。后续仍可迁移到已实现的应用内单用户登录。
+- APK 依赖网络和 VPS；P2 第一版不承诺离线阅读、后台同步或本地 AI。
+- 发行方式为手动分发签名 APK，不接入 Google Play；当前 Release 外壳已构建，项目暂时不继续扩展原生能力。
+
+### 3.3 单用户应用会话（已合并到 main，生产启用待定）
 
 - `AUTH_ENABLED` 默认关闭；只有服务端明确配置后，前端才显示应用登录页，因此当前已有环境不会被突然锁定。
 - 个人登录密码只以 scrypt 哈希形式保存于服务端环境变量 `AUTH_PASSWORD_HASH`，不进入前端、Markdown 或 Git。
 - 登录成功后由后端保存内存会话，浏览器只保存 `HttpOnly`、`SameSite=Lax` Cookie；勾选“记住 7 天”时 Cookie 设置 7 天有效期，否则为 8 小时浏览器会话。
 - `/api/health` 和 `/api/auth/*` 保持可访问；学习库、文章、反馈、生成和 Git 同步接口统一经过应用会话校验。
 - 当前会话保存在 Node 进程内存中，服务重启会让已有登录失效；这是个人单实例 MVP 的暂定方案，扩展多实例前再评估持久化会话存储。
-- 生产环境默认要求 `AUTH_COOKIE_SECURE=true`，因此必须在 HTTPS 可用后再启用应用登录。
+- 生产环境默认要求 `AUTH_COOKIE_SECURE=true`；当前已具备 HTTPS，是否启用应用登录留待 APK 实施前决定。
 
 ## 4. 计划中的代码职责
 
@@ -260,13 +280,13 @@ Express 校验学习库边界和请求字段
 - Git 2.54.0
 - GitHub CLI 2.96.0
 - Visual Studio Code 1.132.0
-- Java/JDK 17.0.11（P0 暂不使用）
+- Java/JDK 17.0.11（系统默认）；Android APK 构建使用 Microsoft JDK 21.0.12
 
-P0 不需要安装 SQLite、Android SDK、ADB 或全局 Gradle。
+P0/P1 不需要安装 SQLite、Android SDK、ADB 或全局 Gradle；P2 已在本机安装 Android SDK、ADB、Gradle Wrapper 和 JDK 21，由 Capacitor/Android 工具链使用。
 
 React、Vite、TypeScript、Express 等属于项目依赖，应在初始化代码项目时安装到项目目录，不进行全局安装。
 
-P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密钥配置；临时 HTTP 部署已验证，正式 HTTPS、生产 AI 连接和最终访问控制仍待完成。
+P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密钥配置；域名 HTTPS、Nginx 反向代理和基本远程访问已经验证。P2 Release 外壳已经构建并保留签名配置；应用内登录是否启用留待真实使用后决定，当前不作为归档前置条件。
 
 ## 7. 后续待确认
 
@@ -276,5 +296,6 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 - 允许同步的文件范围和复杂冲突的长期处理策略仍需继续确认；push 与只读快进 pull 接口已经实现。
 - GitHub 双方各有提交时仍采用人工合并，暂不在个人学习应用中加入在线冲突解决器。
 - VPS 正式远程访问保留 Nginx Basic Auth，还是在 HTTPS 后迁移到已实现的单用户应用登录。
-- Android APK 的具体包装技术，以及生产环境 API 地址配置。
-- Leaf 5 真机上的 Markdown 渲染和输入法兼容性。
+- P2 的 release 签名密钥保存位置、WebView 认证处理和 BOOX 系统导航栏策略已经形成首版方案；首版包名已确定为 `xyz.maki3991.interactivestudy`，真机核对留待首次使用。
+- Leaf 5 真机上的 Markdown 渲染和输入法兼容性，只有出现实际问题时再处理。
+- 项目当前进入真实学习观察期；新增功能、分页阅读和离线阅读暂不作为本次提交范围。
