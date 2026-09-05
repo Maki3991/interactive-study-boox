@@ -694,6 +694,12 @@ POST /api/learning/operations/0f7a1b2c-3d4e-4f56-8a90-123456789abc/rollback
 GET /api/sync/status
 ```
 
+需要从远程仓库刷新状态时，可以使用：
+
+```http
+GET /api/sync/status?refresh=1
+```
+
 成功响应：`200 OK`
 
 ```json
@@ -712,7 +718,7 @@ GET /api/sync/status
 }
 ```
 
-后端从 VPS 工作区执行只读 Git 检查，不能把绝对路径、远程 URL 中的凭据或服务器环境变量返回给客户端。没有修改时 `state` 为 `clean`；工作区、远程或网络不可用时分别返回 `conflict` 或 `offline`。
+后端从 VPS 工作区执行 Git 检查，不能把绝对路径、远程 URL 中的凭据或服务器环境变量返回给客户端。没有修改时 `state` 为 `clean`；GitHub 领先且 VPS 工作区干净时为 `remote-ahead`；工作区、远程或网络不可用时分别返回 `conflict` 或 `offline`。带 `refresh=1` 时，后端先执行一次 `git fetch`，再返回状态。
 
 ### 6.10 手动同步到 GitHub（P1 暂定）
 
@@ -754,7 +760,36 @@ Content-Type: application/json
 }
 ```
 
-P1 首版不提供客户端直接调用 GitHub Contents API 的路径，也不自动为每个文件创建 commit。远程仓库的手动编辑、拉取和复杂冲突解决可以在同步闭环稳定后再增加。
+P1 不提供客户端直接调用 GitHub Contents API 的路径，也不自动为每个文件创建 commit。远程更新通过下面的快进拉取接口进入 VPS；复杂冲突仍需人工处理。
+
+### 6.11 从 GitHub 拉取更新（P1）
+
+```http
+POST /api/sync/pull
+```
+
+后端处理顺序：
+
+1. 确认 Git 同步已启用、工作区是预期仓库且当前分支正确。
+2. 执行 `git fetch` 获取远程状态。
+3. 如果 VPS 有未提交修改，返回 `409 GIT_LOCAL_CHANGES`。
+4. 如果 VPS 和 GitHub 各有新的提交，返回 `409 GIT_HISTORY_DIVERGED`。
+5. 检查远程更新只包含允许自动拉取的 Markdown 文件。
+6. 使用 `git merge --ff-only` 快进 VPS 工作区，不创建额外合并提交，也不强制覆盖本地文件。
+
+成功响应：`200 OK`
+
+```json
+{
+  "state": "clean",
+  "commitHash": "def456...",
+  "pulledCommits": 1,
+  "updatedFiles": [
+    "on-going/蓝皮书与棕皮书/00-学习计划.md"
+  ],
+  "pulledAt": "2026-09-05T12:00:00.000Z"
+}
+```
 
 ## 7. HTTP 状态码约定
 

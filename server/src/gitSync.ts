@@ -11,7 +11,13 @@ import {
 const execFile = promisify(execFileCallback)
 const maxGitOutputBytes = 2 * 1024 * 1024
 
-export type SyncState = 'disabled' | 'clean' | 'pending' | 'conflict' | 'offline'
+export type SyncState =
+  | 'disabled'
+  | 'clean'
+  | 'pending'
+  | 'remote-ahead'
+  | 'conflict'
+  | 'offline'
 
 export interface SyncStatus {
   state: SyncState
@@ -32,6 +38,14 @@ export interface SyncPushResult {
   commitMessage: string
   syncedFiles: string[]
   syncedAt: string
+}
+
+export interface SyncPullResult {
+  state: 'clean'
+  commitHash: string
+  pulledCommits: number
+  updatedFiles: string[]
+  pulledAt: string
 }
 
 export class GitSyncError extends Error {
@@ -112,6 +126,38 @@ async function runGitOptional(args: string[], repositoryRoot: string) {
   } catch (error) {
     if (error instanceof GitSyncError) {
       return null
+    }
+
+    throw error
+  }
+}
+
+async function ensureRemote(repositoryRoot: string) {
+  const remoteUrl = await runGitOptional(['remote', 'get-url', gitSyncRemote], repositoryRoot)
+
+  if (remoteUrl === null) {
+    throw new GitSyncError(
+      'GIT_REMOTE_NOT_CONFIGURED',
+      503,
+      '当前 Git 仓库没有配置可用的远程仓库。',
+    )
+  }
+
+  return remoteUrl
+}
+
+async function fetchRemote(repositoryRoot: string) {
+  await ensureRemote(repositoryRoot)
+
+  try {
+    await runGit(['fetch', '--quiet', '--prune', gitSyncRemote], repositoryRoot)
+  } catch (error) {
+    if (error instanceof GitSyncError) {
+      throw new GitSyncError(
+        'GIT_REMOTE_UNAVAILABLE',
+        503,
+        '无法从 GitHub 获取最新状态，请检查网络和 Git 凭据。',
+      )
     }
 
     throw error
@@ -238,6 +284,12 @@ async function getAheadBehind(repositoryRoot: string, upstream: string | null) {
   }
 }
 
+async function getChangedFilesBetween(repositoryRoot: string, fromRef: string, toRef: string) {
+  const output = await runGit(['diff', '--name-only', '-z', fromRef, toRef], repositoryRoot)
+
+  return [...new Set(output.split('\0').filter(Boolean).map(normalizeRelativePath))].sort()
+}
+
 async function inspectRepository(repositoryRoot: string): Promise<GitInspection> {
   const branch = await getCurrentBranch(repositoryRoot)
   const changedFiles = await getChangedFiles(repositoryRoot)
@@ -273,8 +325,13 @@ function toStatus(inspection: GitInspection): SyncStatus {
     state = 'conflict'
     message = '工作区包含不允许同步的文件，请先处理这些文件。'
   } else if (inspection.behind > 0) {
-    state = 'conflict'
-    message = '远程仓库有 VPS 尚未拉取的修改，暂不执行强制覆盖。'
+    if (inspection.changedFiles.length > 0 || inspection.ahead > 0) {
+      state = 'conflict'
+      message = 'VPS 与远程仓库各有未合并的修改，请先人工处理同步冲突。'
+    } else {
+      state = 'remote-ahead'
+      message = 'GitHub 有 VPS 尚未拉取的更新。'
+    }
   } else if (inspection.changedFiles.length > 0 || inspection.ahead > 0) {
     state = 'pending'
   }
@@ -300,7 +357,7 @@ function toStatus(inspection: GitInspection): SyncStatus {
   }
 }
 
-export async function getSyncStatus(): Promise<SyncStatus> {
+export async function getSyncStatus(refreshRemote = false): Promise<SyncStatus> {
   if (!gitSyncEnabled) {
     return {
       state: 'disabled',
@@ -317,6 +374,11 @@ export async function getSyncStatus(): Promise<SyncStatus> {
 
   try {
     const repositoryRoot = await resolveRepositoryRoot()
+
+    if (refreshRemote) {
+      await fetchRemote(repositoryRoot)
+    }
+
     return toStatus(await inspectRepository(repositoryRoot))
   } catch (error) {
     if (error instanceof GitSyncError) {
@@ -363,29 +425,7 @@ export async function pushSync(message: unknown): Promise<SyncPushResult> {
 
   const repositoryRoot = await resolveRepositoryRoot()
   const branch = await getCurrentBranch(repositoryRoot)
-  const remoteUrl = await runGitOptional(['remote', 'get-url', gitSyncRemote], repositoryRoot)
-
-  if (remoteUrl === null) {
-    throw new GitSyncError(
-      'GIT_REMOTE_NOT_CONFIGURED',
-      503,
-      '当前 Git 仓库没有配置可用的远程仓库。',
-    )
-  }
-
-  try {
-    await runGit(['fetch', '--quiet', '--prune', gitSyncRemote], repositoryRoot)
-  } catch (error) {
-    if (error instanceof GitSyncError) {
-      throw new GitSyncError(
-        'GIT_REMOTE_UNAVAILABLE',
-        503,
-        '无法从 GitHub 获取最新状态，请检查网络和 Git 凭据。',
-      )
-    }
-
-    throw error
-  }
+  await fetchRemote(repositoryRoot)
 
   const inspection = await inspectRepository(repositoryRoot)
 
@@ -438,5 +478,90 @@ export async function pushSync(message: unknown): Promise<SyncPushResult> {
     commitMessage: syncFiles.length > 0 ? commitMessage : '',
     syncedFiles: syncFiles,
     syncedAt: new Date().toISOString(),
+  }
+}
+
+export async function pullSync(): Promise<SyncPullResult> {
+  if (!gitSyncEnabled) {
+    throw new GitSyncError('GIT_SYNC_DISABLED', 409, 'Git 同步尚未启用。')
+  }
+
+  const repositoryRoot = await resolveRepositoryRoot()
+  await getCurrentBranch(repositoryRoot)
+  await fetchRemote(repositoryRoot)
+
+  const inspection = await inspectRepository(repositoryRoot)
+
+  if (inspection.blockedFiles.length > 0) {
+    throw new GitSyncError(
+      'GIT_UNSUPPORTED_FILES',
+      409,
+      '工作区包含不允许同步的文件：' + inspection.blockedFiles.join('、'),
+    )
+  }
+
+  if (inspection.behind === 0) {
+    return {
+      state: 'clean',
+      commitHash: inspection.head ?? '',
+      pulledCommits: 0,
+      updatedFiles: [],
+      pulledAt: new Date().toISOString(),
+    }
+  }
+
+  if (inspection.changedFiles.length > 0) {
+    throw new GitSyncError(
+      'GIT_LOCAL_CHANGES',
+      409,
+      'VPS 工作区有未同步修改，请先保存或同步这些 Markdown 文件后再拉取。',
+    )
+  }
+
+  if (inspection.ahead > 0 || !inspection.upstream || !inspection.head) {
+    throw new GitSyncError(
+      'GIT_HISTORY_DIVERGED',
+      409,
+      'VPS 与 GitHub 各有新的提交，不能自动拉取，请先人工合并。',
+    )
+  }
+
+  const incomingFiles = await getChangedFilesBetween(
+    repositoryRoot,
+    inspection.head,
+    inspection.upstream,
+  )
+  const blockedIncomingFiles = incomingFiles.filter((filePath) => !isAllowedSyncPath(filePath))
+
+  if (blockedIncomingFiles.length > 0) {
+    throw new GitSyncError(
+      'GIT_REMOTE_UNSUPPORTED_FILES',
+      409,
+      '远程更新包含不允许自动拉取的文件：' + blockedIncomingFiles.join('、'),
+    )
+  }
+
+  try {
+    await runGit(['merge', '--ff-only', inspection.upstream], repositoryRoot)
+  } catch (error) {
+    if (error instanceof GitSyncError) {
+      throw new GitSyncError(
+        'GIT_PULL_FAILED',
+        409,
+        'GitHub 更新无法以安全的快进方式拉取，请先人工处理同步状态。',
+      )
+    }
+
+    throw error
+  }
+
+  const finalHead = await runGitOptional(['rev-parse', 'HEAD'], repositoryRoot)
+
+  return {
+    state: 'clean',
+    commitHash: finalHead ?? inspection.head,
+    pulledCommits: inspection.behind,
+    updatedFiles: incomingFiles,
+    pulledAt: new Date().toISOString(),
   }
 }

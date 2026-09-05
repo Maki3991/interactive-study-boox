@@ -111,7 +111,13 @@ export interface RollbackGenerationResponse {
   feedbackKept: boolean
 }
 
-export type SyncState = 'disabled' | 'clean' | 'pending' | 'conflict' | 'offline'
+export type SyncState =
+  | 'disabled'
+  | 'clean'
+  | 'pending'
+  | 'remote-ahead'
+  | 'conflict'
+  | 'offline'
 
 export interface SyncStatus {
   state: SyncState
@@ -132,4 +138,12 @@ export interface SyncPushResponse {
   commitMessage: string
   syncedFiles: string[]
   syncedAt: string
+}
+
+export interface SyncPullResponse {
+  state: 'clean'
+  commitHash: string
+  pulledCommits: number
+  updatedFiles: string[]
+  pulledAt: string
 }

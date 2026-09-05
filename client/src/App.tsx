@@ -8,6 +8,7 @@ import {
   loadSyncStatus,
   login,
   logout,
+  pullSync,
   pushSync,
   rollbackGeneration,
   saveFeedback,
@@ -202,6 +203,7 @@ function StudyApp({ onLogout }: StudyAppProps) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null)
   const [isSyncStatusLoading, setIsSyncStatusLoading] = useState(true)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isPulling, setIsPulling] = useState(false)
   const [syncCommitMessage, setSyncCommitMessage] = useState('')
   const [syncNotice, setSyncNotice] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
@@ -211,11 +213,11 @@ function StudyApp({ onLogout }: StudyAppProps) {
   const latestGenerationRequestRef = useRef(0)
   const pendingFeedbackSubmissionRef = useRef<{ feedback: string; submissionId: string } | null>(null)
 
-  const refreshSyncStatus = useCallback(async () => {
+  const refreshSyncStatus = useCallback(async (refreshRemote = false) => {
     setIsSyncStatusLoading(true)
 
     try {
-      const status = await loadSyncStatus()
+      const status = await loadSyncStatus(refreshRemote)
       setSyncStatus(status)
       return status
     } catch (error) {
@@ -538,6 +540,34 @@ function StudyApp({ onLogout }: StudyAppProps) {
     }
   }, [refreshSyncStatus, syncCommitMessage])
 
+  const handlePull = useCallback(async () => {
+    setIsPulling(true)
+    setSyncNotice(null)
+
+    try {
+      const result = await pullSync()
+      const updatedFileCount = result.updatedFiles.length
+      setSyncNotice({
+        kind: 'success',
+        message:
+          updatedFileCount > 0
+            ? `已从 GitHub 拉取 ${result.pulledCommits} 个更新，刷新了 ${updatedFileCount} 个 Markdown 文件。`
+            : 'GitHub 没有新的 Markdown 文件需要拉取。',
+      })
+      setLibraryRequestVersion((previousVersion) => previousVersion + 1)
+      await refreshSyncStatus()
+    } catch (error) {
+      setSyncNotice({
+        kind: 'error',
+        message: getErrorMessage(error, '拉取失败，请先检查同步状态和本地修改。'),
+      })
+    } finally {
+      setIsPulling(false)
+    }
+  }, [refreshSyncStatus])
+
+  const handleRefreshSyncStatus = useCallback(() => refreshSyncStatus(true), [refreshSyncStatus])
+
   useEffect(() => {
     if (!currentArticle?.generationInProgress) {
       return
@@ -829,11 +859,13 @@ function StudyApp({ onLogout }: StudyAppProps) {
             status={syncStatus}
             isLoading={isSyncStatusLoading}
             isSyncing={isSyncing}
+            isPulling={isPulling}
             commitMessage={syncCommitMessage}
             notice={syncNotice}
             onCommitMessageChange={setSyncCommitMessage}
-            onRefresh={refreshSyncStatus}
+            onRefresh={handleRefreshSyncStatus}
             onSync={handleSync}
+            onPull={handlePull}
             onClose={() => setSyncPanelOpen(false)}
           />
         </>
