@@ -434,9 +434,10 @@ function StudyApp({ onLogout }: StudyAppProps) {
 
       pendingFeedbackSubmissionRef.current = null
       setFeedback('')
+      const routeLabel = result.nextArticle.route === 'supplement' ? '补充课' : '推进课'
       setFeedbackStatus({
         kind: 'success',
-        message: `下一篇已生成：${result.nextArticle.fileName}。当前仍停留在这篇文章。`,
+        message: `已生成${routeLabel}：${result.nextArticle.fileName}。${result.nextArticle.routeReason} 当前仍停留在这篇文章。`,
       })
       setGenerationRecovery({
         operationId: result.operationId,

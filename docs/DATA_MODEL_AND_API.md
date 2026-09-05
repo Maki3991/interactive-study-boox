@@ -198,7 +198,26 @@ interface LessonSourceMapping {
 
 映射保存在 `00-学习计划.md`。一篇学习文章可以对应多个原文文件；第一版以文件路径为主要单位，`heading` 暂作为可选字段。
 
-### 4.8 保存反馈（当前实现）
+`sources/00-原文索引.md` 是素材目录，不等于固定的课程顺序。当前文章之后可以没有预先填写的映射；只要存在原文索引，生成流程会根据反馈自动选择原文，并在成功写入文章时新增或更新对应映射。
+
+### 4.8 生成路径判断
+
+```ts
+type LessonRoute = 'advance' | 'supplement'
+
+interface LessonRouteDecision {
+  route: LessonRoute
+  reason: string
+  focus: string
+  sourceRefs: SourceReference[]
+}
+```
+
+- `advance` 表示推进主线；`supplement` 表示围绕当前卡点补充。
+- `sourceRefs` 限制为 1—4 个 `sources/` 下的 Markdown 文件。
+- 路径判断和文章生成是两个独立的 AI 步骤；路径判断失败时不会写入下一篇文章。
+
+### 4.9 保存反馈（当前实现）
 
 ```ts
 interface SaveFeedbackRequest {
@@ -224,17 +243,24 @@ interface SaveFeedbackResponse {
 
 `POST /api/feedback` 只完成安全保存，不调用 AI。这是接入生成能力前的独立最小闭环。
 
-### 4.9 提交反馈并生成下一篇
+### 4.10 提交反馈并生成下一篇
 
 ```ts
 interface GenerateNextRequest extends SaveFeedbackRequest {}
+
+interface GeneratedArticleSummary extends ArticleSummary {
+  kind: 'lesson'
+  route: 'advance' | 'supplement'
+  routeReason: string
+  sourceRefs: string[]
+}
 
 interface GenerateNextResponse {
   feedbackSaved: boolean
   currentArticlePath: string
   operationId: string
   changedFiles: string[]
-  nextArticle: ArticleSummary
+  nextArticle: GeneratedArticleSummary
 }
 ```
 
@@ -243,13 +269,14 @@ interface GenerateNextResponse {
 - `operationId` 是这次生成的持久化操作记录标识，可用于查询状态或发起回滚。
 - `changedFiles` 是本次成功写入的相对路径；当前通常包含新建的下一篇文章和被更新的学习计划。
 
-### 4.10 生成操作记录
+### 4.11 生成操作记录
 
 ```ts
 type GenerationOperationStatus =
   | 'preparing'
   | 'feedback-saved'
   | 'snapshot-created'
+  | 'route-selected'
   | 'ai-generated'
   | 'next-article-writing'
   | 'next-article-written'
@@ -269,6 +296,9 @@ interface GenerationOperation {
   feedbackSubmissionId: string
   feedbackSaved: boolean
   changedFiles: string[]
+  route?: 'advance' | 'supplement'
+  routeReason?: string
+  sourceRefs?: string[]
   nextArticle: {
     relativePath: string
     beforeHash?: string
@@ -289,7 +319,7 @@ interface GenerationOperation {
 
 操作记录不是学习内容数据库。它用于回答三个安全问题：这次操作走到了哪一步、哪些文件可能已经改变、回滚前文件是否仍然是本次操作写出的版本。服务启动时，未进入终态的旧记录会标记为 `interrupted`，不会自动覆盖或删除学习文件。
 
-### 4.11 统一错误格式
+### 4.12 统一错误格式
 
 ```ts
 interface ApiErrorResponse {
@@ -307,7 +337,7 @@ interface ApiErrorResponse {
 - `recoverable`：是否适合直接重试。
 - `feedbackSaved`：生成失败时告诉前端反馈是否已经安全保存。
 
-### 4.12 P1 Git 同步状态与请求（暂定）
+### 4.13 P1 Git 同步状态与请求（暂定）
 
 Git 同步状态由 VPS 工作区的 Git 命令动态计算，不写入 SQL 数据库：
 
@@ -623,14 +653,14 @@ Content-Type: application/json
 2. 创建持久化 `operationId`，后续每一步更新操作阶段；
 3. 使用 `submissionId` 判断反馈是否已经写入；尚未写入时以原子方式追加到当前文章末尾；
 4. 根据 `articlePath` 找到项目目录并检查 `00-学习计划.md`；
-5. 从学习计划读取当前文章和下一篇的原文映射；
-6. 校验映射路径位于项目的 `sources/` 内，并读取对应原文；
-7. 确认下一篇文件不存在；
-8. 保存学习计划的生成前快照；
-9. 组装固定学习规则、学习计划、当前文章、反馈和原文上下文；
-10. 调用 OpenAI，并校验返回的 Markdown 结构；
+5. 从学习计划读取当前文章的原文映射，并读取 `sources/00-原文索引.md`；
+6. 第一次 AI 请求根据反馈返回 `advance` 或 `supplement`、理由、教学重点和原文路径；
+7. 校验所选路径位于项目的 `sources/` 内，并读取对应原文；
+8. 确认下一篇文件不存在；
+9. 保存学习计划的生成前快照；
+10. 第二次 AI 请求根据路径判断和原文上下文生成文章，并校验 Markdown 结构；
 11. 先写入临时文件，再原子重命名创建下一篇 Markdown；
-12. 以原子方式更新学习计划，记录写入后的 SHA-256 哈希；
+12. 以原子方式更新学习计划、路径理由和原文映射，记录写入后的 SHA-256 哈希；
 13. 两个目标文件都确认写入后，将操作标记为 `committed` 并返回修改摘要。
 
 成功响应：`201 Created`
@@ -648,7 +678,10 @@ Content-Type: application/json
     "fileName": "02.md",
     "title": "接口错误与失败处理",
     "relativePath": "on-going/示例项目/02.md",
-    "kind": "lesson"
+    "kind": "lesson",
+    "route": "supplement",
+    "routeReason": "用户仍然卡在错误处理的具体边界，需要先用一个更小的例子补充。",
+    "sourceRefs": ["sources/part-1/02-attention-and-effort.md"]
   }
 }
 ```

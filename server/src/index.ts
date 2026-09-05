@@ -4,9 +4,15 @@ import * as path from 'node:path'
 import { generateText } from './ai.js'
 import { getAuthStatus, login, logout, requireAuth } from './auth.js'
 import { libraryRoot, serverHost, serverPort, writeSafetyRoot } from './config.js'
-import { buildNextLessonPrompt } from './generationPrompt.js'
+import { buildLessonRoutePrompt, buildNextLessonPrompt } from './generationPrompt.js'
 import { GitSyncError, getSyncStatus, pullSync, pushSync } from './gitSync.js'
-import { buildLearningContext, LearningContextError } from './learningContext.js'
+import { buildLearningContext, LearningContextError, readSourceFiles } from './learningContext.js'
+import {
+  LessonRouteDecisionError,
+  parseLessonRouteDecision,
+  validateLessonRouteSources,
+  type LessonRouteDecision,
+} from './learningRoute.js'
 import {
   GenerationOperation,
   GenerationOperationStore,
@@ -345,36 +351,104 @@ function replacePlanLine(markdown: string, label: string, value: string) {
   return markdown.replace(pattern, `- ${label}${value}`)
 }
 
+function upsertLessonSourceMapping(
+  planMarkdown: string,
+  lessonFileName: string,
+  sourceRefs: LessonRouteDecision['sourceRefs'],
+) {
+  const mappingRow = `| \`${lessonFileName}\` | ${sourceRefs
+    .map((sourceRef) => `\`${sourceRef.relativePath}\``)
+    .join('、')} |`
+  const lines = planMarkdown.split(/\r?\n/)
+  const headingIndex = lines.findIndex((line) => line.trim() === '## 学习文章与原文映射')
+
+  if (headingIndex < 0) {
+    return `${planMarkdown.trimEnd()}\n\n## 学习文章与原文映射\n\n| 学习文章 | 原文 |\n|---|---|\n${mappingRow}\n`
+  }
+
+  const nextHeadingIndex = lines.findIndex(
+    (line, index) => index > headingIndex && line.startsWith('## '),
+  )
+  const sectionEnd = nextHeadingIndex >= 0 ? nextHeadingIndex : lines.length
+  const existingRowIndex = lines.findIndex((line, index) => {
+    if (index <= headingIndex || index >= sectionEnd || !line.trim().startsWith('|')) {
+      return false
+    }
+
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim())
+    return cells.length > 0 && cells[0].replace(/^`|`$/g, '') === lessonFileName
+  })
+
+  if (existingRowIndex >= 0) {
+    lines[existingRowIndex] = mappingRow
+  } else {
+    lines.splice(sectionEnd, 0, mappingRow)
+  }
+
+  return lines.join('\n')
+}
+
 function updatePlanAfterGeneration(
   planMarkdown: string,
   currentArticlePath: string,
   nextArticlePath: string,
   feedback: string,
+  decision: LessonRouteDecision,
 ) {
   const currentFileName = path.posix.basename(currentArticlePath)
   const nextFileName = path.posix.basename(nextArticlePath)
   const today = new Date().toISOString().slice(0, 10)
   const compactFeedback = feedback.replace(/\s+/g, ' ').replaceAll('|', '\\|').slice(0, 160)
+  const compactReason = decision.reason.replace(/\s+/g, ' ').replaceAll('|', '\\|').slice(0, 220)
+  const routeLabel = decision.route === 'supplement' ? '补充课' : '推进课'
   let updatedPlan = planMarkdown
 
   updatedPlan = replacePlanLine(updatedPlan, '当前文章：', `\`${currentFileName}\``)
   updatedPlan = replacePlanLine(updatedPlan, '最近更新：', today)
-  updatedPlan = replacePlanLine(updatedPlan, '状态：', `已生成 \`${nextFileName}\`，等待阅读反馈`)
+  updatedPlan = replacePlanLine(
+    updatedPlan,
+    '状态：',
+    `已生成 \`${nextFileName}\`（${routeLabel}），等待阅读反馈`,
+  )
   updatedPlan = replacePlanLine(updatedPlan, '下一步：', `打开 \`${nextFileName}\` 阅读`)
 
-  const feedbackRow = `| \`${currentFileName}\` | ${compactFeedback} | 已生成 \`${nextFileName}\`，等待阅读反馈 |`
+  const feedbackRow = `| \`${currentFileName}\` | ${compactFeedback} | 已生成 \`${nextFileName}\`（${routeLabel}），等待阅读反馈 |`
   const lines = updatedPlan.split(/\r?\n/)
-  const feedbackRowIndex = lines.findIndex((line) => line.includes(`| \`${currentFileName}\` |`))
+  const feedbackHeadingIndex = lines.findIndex((line) => line.trim() === '## 反馈摘要')
+  const feedbackSectionEnd =
+    feedbackHeadingIndex >= 0
+      ? (() => {
+          const nextHeadingIndex = lines.findIndex(
+            (line, index) => index > feedbackHeadingIndex && line.startsWith('## '),
+          )
+          return nextHeadingIndex >= 0 ? nextHeadingIndex : lines.length
+        })()
+      : -1
+  const feedbackRowIndex = lines.findIndex((line, index) => {
+    if (
+      feedbackHeadingIndex < 0 ||
+      index <= feedbackHeadingIndex ||
+      index >= feedbackSectionEnd ||
+      !line.trim().startsWith('|')
+    ) {
+      return false
+    }
+
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim())
+    return cells.length > 0 && cells[0].replace(/^`|`$/g, '') === currentFileName
+  })
 
   if (feedbackRowIndex >= 0) {
     lines[feedbackRowIndex] = feedbackRow
     updatedPlan = lines.join('\n')
   }
 
+  updatedPlan = upsertLessonSourceMapping(updatedPlan, nextFileName, decision.sourceRefs)
+
   const marker = `<!-- interactive-study-boox:generated-next=${nextArticlePath} -->`
 
   if (!updatedPlan.includes(marker)) {
-    const updateEntry = `- ${today}：根据 \`${currentFileName}\` 的反馈生成 \`${nextFileName}\`。 ${marker}`
+    const updateEntry = `- ${today}：根据 \`${currentFileName}\` 的反馈生成 \`${nextFileName}\`（${routeLabel}）。${compactReason} ${marker}`
     const updateHeading = '## 更新记录'
     const headingIndex = updatedPlan.indexOf(updateHeading)
 
@@ -467,6 +541,10 @@ function getGenerationFailure(error: unknown, operation: GenerationOperation) {
 
   if (error instanceof GeneratedLessonError) {
     return { status: 502, code: 'AI_OUTPUT_INVALID', message: error.message }
+  }
+
+  if (error instanceof LessonRouteDecisionError) {
+    return { status: 502, code: 'AI_ROUTE_INVALID', message: error.message }
   }
 
   if (error instanceof WriteSafetyConflictError) {
@@ -642,7 +720,12 @@ app.get('/api/article', async (request, response) => {
 app.get('/api/learning/context-preview', async (request, response) => {
   try {
     const context = await buildLearningContext(libraryRoot, request.query.path)
-    const files = [context.planFile, context.currentArticle, ...context.sourceFiles].map((file) => ({
+    const files = [
+      context.planFile,
+      context.currentArticle,
+      ...(context.sourceIndexFile ? [context.sourceIndexFile] : []),
+      ...context.sourceFiles,
+    ].map((file) => ({
       role: file.role,
       relativePath: file.relativePath,
       characters: file.markdown.length,
@@ -654,6 +737,7 @@ app.get('/api/learning/context-preview', async (request, response) => {
       nextArticlePath: context.nextArticlePath,
       currentSourcePaths: context.currentSourceRefs.map((sourceRef) => sourceRef.relativePath),
       nextSourcePaths: context.nextSourceRefs.map((sourceRef) => sourceRef.relativePath),
+      sourceIndexPath: context.sourceIndexFile?.relativePath ?? null,
       files,
     })
   } catch (error) {
@@ -954,7 +1038,30 @@ app.post('/api/learning/generate-next', async (request, response) => {
 
     await saveGenerationOperationStatus(operation, 'snapshot-created')
 
-    const prompt = buildNextLessonPrompt(context, validation.request.feedback)
+    const routeDecision = parseLessonRouteDecision(
+      await generateText(buildLessonRoutePrompt(context, validation.request.feedback)),
+    )
+    validateLessonRouteSources(
+      routeDecision,
+      context.sourceIndexFile?.markdown ?? null,
+      [...context.currentSourceRefs, ...context.nextSourceRefs],
+    )
+    const selectedSourceFiles = await readSourceFiles(
+      libraryRoot,
+      context.projectRootPath,
+      routeDecision.sourceRefs,
+    )
+    operation.route = routeDecision.route
+    operation.routeReason = routeDecision.reason
+    operation.sourceRefs = routeDecision.sourceRefs.map((sourceRef) => sourceRef.relativePath)
+    await saveGenerationOperationStatus(operation, 'route-selected')
+
+    const prompt = buildNextLessonPrompt(
+      context,
+      validation.request.feedback,
+      routeDecision,
+      selectedSourceFiles,
+    )
     const generatedMarkdown = validateGeneratedLesson(await generateText(prompt))
     await saveGenerationOperationStatus(operation, 'ai-generated')
     operation.nextArticle = {
@@ -974,6 +1081,7 @@ app.post('/api/learning/generate-next', async (request, response) => {
       context.currentArticle.relativePath,
       context.nextArticlePath,
       validation.request.feedback,
+      routeDecision,
     )
     operation.plan = {
       ...operation.plan,
@@ -1005,6 +1113,9 @@ app.post('/api/learning/generate-next', async (request, response) => {
         title: getArticleTitle(generatedMarkdown, nextFileName),
         relativePath: context.nextArticlePath,
         kind: 'lesson',
+        route: routeDecision.route,
+        routeReason: routeDecision.reason,
+        sourceRefs: routeDecision.sourceRefs.map((sourceRef) => sourceRef.relativePath),
       },
     })
   } catch (error) {

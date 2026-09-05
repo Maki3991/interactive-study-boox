@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import * as path from 'node:path'
+import type { LessonRoute } from './learningRoute.js'
 
 export type GenerationOperationStatus =
   | 'preparing'
   | 'feedback-saved'
   | 'snapshot-created'
+  | 'route-selected'
   | 'ai-generated'
   | 'next-article-writing'
   | 'next-article-written'
@@ -33,6 +35,9 @@ export interface GenerationOperation {
   feedbackSubmissionId: string
   feedbackSaved: boolean
   changedFiles: string[]
+  route?: LessonRoute
+  routeReason?: string
+  sourceRefs?: string[]
   nextArticle: OperationFileRecord | null
   plan: OperationFileRecord | null
   createdAt: string
