@@ -1,3 +1,5 @@
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import * as path from 'node:path'
 import 'dotenv/config'
 import { createHash, randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import type { NextFunction, Request, Response } from 'express'
@@ -26,6 +28,10 @@ const authCookieSecure = parseBoolean(
   process.env.NODE_ENV === 'production',
 )
 const passwordHash = process.env.AUTH_PASSWORD_HASH?.trim() || ''
+const authSessionFile = path.resolve(
+  process.env.AUTH_SESSION_FILE?.trim() ||
+    path.join(process.cwd(), '.interactive-study-boox', 'auth-sessions.json'),
+)
 
 interface SessionRecord {
   expiresAt: number
@@ -48,7 +54,67 @@ export interface LoginResult {
   remember: boolean
 }
 
-const sessions = new Map<string, SessionRecord>()
+interface PersistedSessionRecord {
+  sessionId: string
+  expiresAt: number
+}
+
+function loadSessions() {
+  const loadedSessions = new Map<string, SessionRecord>()
+
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(authSessionFile, 'utf8'))
+
+    if (!Array.isArray(parsed)) {
+      return loadedSessions
+    }
+
+    for (const record of parsed) {
+      if (typeof record !== 'object' || record === null) {
+        continue
+      }
+
+      const candidate = record as Partial<PersistedSessionRecord>
+
+      if (
+        typeof candidate.sessionId === 'string' &&
+        candidate.sessionId.length > 0 &&
+        typeof candidate.expiresAt === 'number' &&
+        Number.isFinite(candidate.expiresAt) &&
+        candidate.expiresAt > Date.now()
+      ) {
+        loadedSessions.set(candidate.sessionId, { expiresAt: candidate.expiresAt })
+      }
+    }
+  } catch (error) {
+    const errorCode = error && typeof error === 'object' && 'code' in error ? error.code : null
+
+    if (errorCode !== 'ENOENT') {
+      console.error(`Failed to load persisted auth sessions from ${authSessionFile}:`, error)
+    }
+  }
+
+  return loadedSessions
+}
+
+function persistSessions(sessions: Map<string, SessionRecord>) {
+  mkdirSync(path.dirname(authSessionFile), { recursive: true, mode: 0o700 })
+
+  const records: PersistedSessionRecord[] = Array.from(sessions.entries()).map(
+    ([sessionId, session]) => ({
+      sessionId,
+      expiresAt: session.expiresAt,
+    }),
+  )
+
+  writeFileSync(authSessionFile, `${JSON.stringify(records)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  })
+  chmodSync(authSessionFile, 0o600)
+}
+
+const sessions = loadSessions()
 const loginAttempts = new Map<string, LoginAttemptRecord>()
 
 function parseBoolean(value: string | undefined, defaultValue: boolean) {
@@ -116,9 +182,20 @@ function getSessionToken(request: Request) {
 }
 
 function pruneExpiredSessions(now: number) {
+  let changed = false
+
   for (const [sessionId, session] of sessions) {
     if (session.expiresAt <= now) {
       sessions.delete(sessionId)
+      changed = true
+    }
+  }
+
+  if (changed) {
+    try {
+      persistSessions(sessions)
+    } catch (error) {
+      console.error(`Failed to prune persisted auth sessions at ${authSessionFile}:`, error)
     }
   }
 }
@@ -300,7 +377,17 @@ export async function login(
 
   const token = randomBytes(32).toString('base64url')
   const expiresAt = now + (remember ? rememberSessionMs : browserSessionMs)
-  sessions.set(hashSessionToken(token), { expiresAt })
+  const sessionId = hashSessionToken(token)
+  sessions.set(sessionId, { expiresAt })
+
+  try {
+    persistSessions(sessions)
+  } catch (error) {
+    sessions.delete(sessionId)
+    console.error(`Failed to persist auth session at ${authSessionFile}:`, error)
+    throw new Error('无法保存登录状态，请检查服务端运行目录权限。')
+  }
+
   setSessionCookie(response, token, remember)
 
   return { expiresAt, remember }
@@ -310,7 +397,15 @@ export function logout(request: Request, response: Response) {
   const token = getSessionToken(request)
 
   if (token) {
-    sessions.delete(hashSessionToken(token))
+    const removed = sessions.delete(hashSessionToken(token))
+
+    if (removed) {
+      try {
+        persistSessions(sessions)
+      } catch (error) {
+        console.error(`Failed to persist logout at ${authSessionFile}:`, error)
+      }
+    }
   }
 
   clearSessionCookie(response)

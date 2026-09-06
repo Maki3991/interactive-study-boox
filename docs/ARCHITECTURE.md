@@ -59,8 +59,8 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 - 版本同步：P1 使用 VPS 上的 Git CLI；用户可以主动 push 本地 Markdown 修改，也可以在工作区干净且历史可快进时 pull GitHub 更新
 - 数据库：P0/P1 暂不使用数据库
 - AI：后端通过 OpenAI API 调用；密钥保存在服务端 `.env`，模型由 `OPENAI_MODEL` 配置，默认使用 `gpt-5`
-- 远程访问：P1 当前通过 HTTPS 暴露后端；当前 VPS 使用 Nginx Basic Auth，应用内单用户会话已作为后续替代方案实现
-- Android 外壳：P2 使用 Capacitor Android；默认通过远程 HTTPS URL 加载网站，不把 API Key、GitHub 凭据或 Basic Auth 密码放入 APK
+- 远程访问：P1 通过 HTTPS 暴露后端；Nginx 只负责反向代理，应用内单用户会话负责保护学习 API
+- Android 外壳：P2 使用 Capacitor Android；默认通过远程 HTTPS URL 加载网站，不把 API Key、GitHub 凭据或登录密码放入 APK
 
 ## 3. P0 架构边界
 
@@ -93,9 +93,9 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 
 - APK 是远程网站的原生容器，不是第二套学习库，也不直接访问 GitHub。
 - WebView 只加载允许的 HTTPS 网站；不使用浏览器地址栏、主页键、书签栏或外部浏览器作为主要阅读界面。
-- 下拉刷新由原生层处理；页面刷新后重新读取当前 VPS 版本。
+- 下拉刷新由原生层处理；原生层同时读取网页内部阅读区的滚动位置，只有阅读区确实位于顶部时才允许拦截下拉手势，避免文章滚动与刷新冲突。
 - WebView 需要保留安全的 Cookie、会话和必要的本地存储，但不在 APK 中硬编码服务端密码或 API Key。
-- 当前保留 Nginx Basic Auth；Android 外壳通过 WebView 的 HTTP Basic Auth 回调弹出原生用户名/密码框，不把凭据硬编码进 APK。后续仍可迁移到已实现的应用内单用户登录。
+- 应用认证由远程网页处理；Android 外壳不再需要保存或弹出 Basic Auth 凭据，登录状态由 HTTPS Cookie 保持。
 - APK 依赖网络和 VPS；P2 第一版不承诺离线阅读、后台同步或本地 AI。
 - 发行方式为手动分发签名 APK，不接入 Google Play；当前 Release 外壳已构建，项目暂时不继续扩展原生能力。
 
@@ -103,10 +103,10 @@ P0 的技术栈已经确认；P1 的 VPS 临时部署和 Git 同步已实现，�
 
 - `AUTH_ENABLED` 默认关闭；只有服务端明确配置后，前端才显示应用登录页，因此当前已有环境不会被突然锁定。
 - 个人登录密码只以 scrypt 哈希形式保存于服务端环境变量 `AUTH_PASSWORD_HASH`，不进入前端、Markdown 或 Git。
-- 登录成功后由后端保存内存会话，浏览器只保存 `HttpOnly`、`SameSite=Lax` Cookie；勾选“记住 7 天”时 Cookie 设置 7 天有效期，否则为 8 小时浏览器会话。
+- 登录成功后由后端保存会话标识的哈希，并将会话写入 `AUTH_SESSION_FILE`；浏览器只保存 `HttpOnly`、`SameSite=Lax` Cookie。勾选“记住 7 天”时 Cookie 和服务端会话设置 7 天有效期，否则为 8 小时浏览器会话。
 - `/api/health` 和 `/api/auth/*` 保持可访问；学习库、文章、反馈、生成和 Git 同步接口统一经过应用会话校验。
-- 当前会话保存在 Node 进程内存中，服务重启会让已有登录失效；这是个人单实例 MVP 的暂定方案，扩展多实例前再评估持久化会话存储。
-- 生产环境默认要求 `AUTH_COOKIE_SECURE=true`；当前已具备 HTTPS，是否启用应用登录留待 APK 实施前决定。
+- `AUTH_SESSION_FILE` 只保存哈希后的会话标识和过期时间，不保存明文密码或 Cookie 原文；服务重启后仍可恢复未过期会话。
+- 生产环境要求 `AUTH_COOKIE_SECURE=true`，并且必须运行在 HTTPS 后面。
 
 ## 4. 计划中的代码职责
 
@@ -144,7 +144,7 @@ interactive-study-boox/
 - `client/src/components/LoginScreen.tsx`：显示密码输入、记住登录选项和登录错误。
 - `client/src/api.ts`：封装登录状态、登录和退出请求，并为失效会话发出前端事件。
 - `client/src/App.tsx`：根据登录状态决定显示登录页还是学习阅读器。
-- `server/src/auth.ts`：生成/校验 scrypt 密码哈希、创建内存会话、设置 Cookie 和拦截受保护 API。
+- `server/src/auth.ts`：生成/校验 scrypt 密码哈希、持久化会话、设置 Cookie 和拦截受保护 API。
 - `server/src/generateAuthHash.ts`：在服务端终端交互生成 `AUTH_PASSWORD_HASH`，不回显明文密码。
 
 ## 5. 核心数据流
@@ -295,7 +295,7 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 - `LIBRARY_ROOT` 与私有 `learn-everything` 工作副本的配置接口和更换策略。
 - 允许同步的文件范围和复杂冲突的长期处理策略仍需继续确认；push 与只读快进 pull 接口已经实现。
 - GitHub 双方各有提交时仍采用人工合并，暂不在个人学习应用中加入在线冲突解决器。
-- VPS 正式远程访问保留 Nginx Basic Auth，还是在 HTTPS 后迁移到已实现的单用户应用登录。
+- 应用登录已经作为正式单用户访问保护方案；Nginx 只保留 HTTPS 反向代理职责。
 - P2 的 release 签名密钥保存位置、WebView 认证处理和 BOOX 系统导航栏策略已经形成首版方案；首版包名已确定为 `xyz.maki3991.interactivestudy`，真机核对留待首次使用。
 - Leaf 5 真机上的 Markdown 渲染和输入法兼容性，只有出现实际问题时再处理。
 - 项目当前进入真实学习观察期；新增功能、分页阅读和离线阅读暂不作为本次提交范围。

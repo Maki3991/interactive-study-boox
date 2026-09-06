@@ -1,8 +1,8 @@
 # Project Status
 
-> 更新时间：2026-09-05
+> 更新时间：2026-09-06
 >
-> 当前阶段：P0/P0.1 已完成；P1 本地学习库、手动 GitHub 同步、VPS HTTPS 远程阅读和自适应生成链已完成；P2 远程加载 HTTPS 网站的 WebView APK Release 版已构建；项目暂时归档，进入真实学习观察期
+> 当前阶段：P0/P0.1 已完成；P1 本地学习库、手动 GitHub 同步、VPS HTTPS 远程阅读和自适应生成链已完成；P2 远程加载 HTTPS 网站的 WebView APK Release 版已构建；当前正在处理 BOOX 真机发现的认证保持和滚动刷新交互问题
 
 ## 1. 当前结论
 
@@ -74,14 +74,14 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
   → 若已启用且未登录，显示 LoginScreen
   → 用户输入应用密码并选择是否记住 7 天
   → 前端请求 POST /api/auth/login
-  → Express 校验服务端 AUTH_PASSWORD_HASH，创建内存会话并设置 HttpOnly Cookie
+  → Express 校验服务端 AUTH_PASSWORD_HASH，创建持久化会话并设置 HttpOnly Cookie
   → 后续学习库、文章、反馈、生成和同步 API 统一检查会话
   → 用户退出或会话过期后，前端回到登录页
 ```
 
-- 应用登录由 `AUTH_ENABLED` 控制，默认关闭；当前 VPS 使用 HTTPS + Nginx Basic Auth，没有启用这套应用登录。
+- 应用登录由 `AUTH_ENABLED` 控制；代码和部署模板已经切换到 HTTPS + 应用登录方案，但当前 VPS 仍需按部署步骤关闭旧的 Nginx Basic Auth 并重启服务。
 - 密码只保存为服务端 scrypt 哈希；更换密码只需重新生成哈希并替换服务端环境变量，不会改动其他服务配置。
-- 勾选“记住登录”时默认有效 7 天；未勾选时是较短的浏览器会话。Node 单实例会话目前保存在内存中，服务重启后需要重新登录。
+- 勾选“记住登录”时默认有效 7 天；未勾选时是较短的浏览器会话。会话哈希和过期时间现在写入 `AUTH_SESSION_FILE`，服务重启后可以恢复未过期会话。
 - 用户已完成本地手动测试：临时密码登录、退出登录、记住 7 天和更换密码均可用；真实密码不记录在仓库或文档中。
 - PR #8 已合并到 `main`；当前工作区为干净的 `main`，代码合并不等于已自动部署到 VPS。
 
@@ -113,7 +113,8 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - 已通过电脑浏览器验证：Basic Auth 登录、真实私有学习库目录、Markdown 文章和反馈保存链路均可用。
 - 生产环境当前使用域名 HTTPS + Nginx Basic Auth；HTTPS 跳转、电脑/手机/BOOX 远程打开已验证，APK 原生 WebView 已加入 Basic Auth 认证弹窗，应用内单用户登录仍未启用。
 - `feat/remember-me-session` 已合并到 `main`：增加可选的单用户应用登录、7 天记住登录、服务端 scrypt 密码哈希、HttpOnly 会话 Cookie、登录失败限速和统一 API 鉴权；本地构建、接口集成和手动使用测试均已完成，尚未部署到 VPS。
-- 应用登录默认由 `AUTH_ENABLED=false` 关闭；如在 APK 实施前启用，需要确认 `AUTH_COOKIE_SECURE=true`，且当前 Node 单实例会话保存在内存中，服务重启后需要重新登录。
+- 应用登录默认由 `AUTH_ENABLED=false` 关闭；部署时需要确认 `AUTH_COOKIE_SECURE=true`、`AUTH_SESSION_FILE` 可写，并移除 Nginx Basic Auth，避免同时出现两套密码框。
+- 本次认证迁移不需要重新安装 APK；之前的滚动冲突修复属于原生外壳变更，仍需在 Java 21 环境重新构建 APK 后安装。
 - APK 不直接调用 AI 服务；任何生产 AI 服务的连接测试和密钥配置仍只在 VPS 服务端进行，正式开始学习前再做一次端到端生成回归。
 - 已用临时 Git 仓库验证多文件一次 commit/push、Markdown 文件白名单、不允许文件拦截和远程领先冲突保护。
 - 已将同步状态面板接入电脑端右侧栏和手机/BOOX 窄屏同步抽屉。
@@ -145,6 +146,7 @@ React 前端已从 Vite 默认页面替换为可点击的学习阅读器，并�
 - 已确认 P0 不集成 Neo Reader；P2 不制作浏览器快捷方式，而是制作不显示浏览器工具栏的远程 WebView APK。
 - 已确认 P2 APK 只作为原生外壳加载 `https://www.maki3991.xyz`：普通网页、后端和学习资料更新不需要重新安装 APK；只有原生外壳变化时才重新打包。
 - 已创建 `client/android/` Capacitor Android 外壳：包名为 `xyz.maki3991.interactivestudy`，原生层提供沉浸式全屏、WebView 返回和下拉刷新；Release APK 已构建并通过 APK v2 签名校验。
+- 已修复 Android WebView 下拉刷新与文章内部滚动的冲突：原生层通过网页桥接读取 `.reader-scroll` 的滚动位置，仅在阅读区位于顶部时拦截下拉刷新；修复后需要重新构建 APK 并在 BOOX 真机复测。
 - 当前 Release APK 位于 `client/android/app/build/outputs/apk/release/app-release.apk`；本机未连接 BOOX 的 ADB 设备，因此仍需手动传输或连接设备完成真机验收。Release 密钥位于本机 `client/android/keystore/`，密码配置位于被忽略的 `client/android/keystore.properties`，两者都需要单独备份。
 - 已把 P1 暂定方向明确为 VPS 后端 + 私有 `learn-everything` 学习资料仓库 + 用户主动触发的 Git 同步；P0 本地模式仍保留。
 - 已完成 UI Spec v0.6：电脑双栏阅读、可折叠侧栏、Obsidian 式文件树、BOOX 窄屏阅读控制面板、约三分之二宽的学习库抽屉、文末反馈保存、后续生成状态和可选单用户登录页规则；取消正文底部常驻小节标题，改为纯滚动阅读。

@@ -41,7 +41,7 @@ P2 Android APK 不复制学习库，也不在本地保存学习数据；它只�
 | Git 同步状态 | VPS 工作区的 Git 状态 | P1 动态计算未同步文件、ahead/behind 和冲突，不单独建立数据库表 |
 | OpenAI/GitHub 凭据 | VPS 密钥或环境变量 | 不进入 Markdown、Git commit、API 响应或客户端 |
 | 应用登录密码 | 服务端环境变量 `AUTH_PASSWORD_HASH` | 只保存 scrypt 哈希，不保存明文密码；未启用应用登录时不读取为登录条件 |
-| 应用登录会话 | Node 进程内存中的会话 Map + 浏览器 Cookie | Cookie 只携带随机会话令牌；服务重启后会话失效，当前不使用数据库 |
+| 应用登录会话 | `AUTH_SESSION_FILE` 中的会话哈希 + 浏览器 Cookie | Cookie 只携带随机会话令牌；运行时文件只保存哈希和过期时间，服务重启后可恢复未过期会话 |
 
 ## 3. 学习库文件模型
 
@@ -429,7 +429,7 @@ Content-Type: application/json
 }
 ```
 
-密码由服务端与 `AUTH_PASSWORD_HASH` 中的 scrypt 哈希比对。成功后服务端保存随机会话令牌的哈希，并通过 `HttpOnly`、`SameSite=Lax` Cookie 把随机令牌交给浏览器；`remember=true` 时 Cookie 和服务端会话默认有效 7 天，否则为 8 小时浏览器会话。生产环境默认追加 `Secure`，所以应用登录必须运行在 HTTPS 上。
+密码由服务端与 `AUTH_PASSWORD_HASH` 中的 scrypt 哈希比对。成功后服务端把随机会话令牌的哈希写入 `AUTH_SESSION_FILE`，并通过 `HttpOnly`、`SameSite=Lax` Cookie 把随机令牌交给浏览器；`remember=true` 时 Cookie 和服务端会话默认有效 7 天，否则为 8 小时浏览器会话。生产环境默认追加 `Secure`，所以应用登录必须运行在 HTTPS 上。
 
 退出请求：
 
@@ -437,7 +437,7 @@ Content-Type: application/json
 POST /api/auth/logout
 ```
 
-除 `GET /api/health` 与 `/api/auth/*` 外，其余 `/api` 接口都经过会话校验；未登录时返回 `401 AUTH_REQUIRED`。当前会话只存在于单个 Node 进程内存中，服务重启后需要重新登录。
+除 `GET /api/health` 与 `/api/auth/*` 外，其余 `/api` 接口都经过会话校验；未登录时返回 `401 AUTH_REQUIRED`。会话文件位于服务端运行目录之外的受 Git 忽略路径中，服务重启后仍可恢复未过期会话。
 
 ### 6.1 获取应用配置
 
