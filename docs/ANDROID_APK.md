@@ -62,4 +62,4 @@ adb devices
 adb install -r client/android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-首次启动时，APK 会在收到 VPS 的 401 后弹出原生认证框：用户名默认填入 `studyboox`，密码填写你原来访问网站时使用的 Nginx Basic Auth 密码。认证成功后再检查阅读 Markdown、提交反馈、生成下一篇、下拉刷新、返回文章和退出应用。
+启用应用登录后，首次启动时 APK 直接显示网页内的登录页；勾选“在此设备记住 7 天”后，关闭并重新打开 APK 不需要再次输入密码。认证迁移只涉及 VPS 的 Nginx 配置和服务端环境变量，不需要重新安装 APK。只有修改原生外壳（例如下拉刷新手势）时，才需要重新构建和安装 APK。

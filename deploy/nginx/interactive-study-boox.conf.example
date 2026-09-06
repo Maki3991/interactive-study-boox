@@ -1,6 +1,7 @@
 # Copy this file to /etc/nginx/sites-available/interactive-study-boox.
 # Replace the root path if the application is installed elsewhere.
-# The auth password file must be created outside this repository.
+# Authentication is handled by the Express application when AUTH_ENABLED=true.
+# Keep HTTPS enabled in production; do not add Nginx Basic Auth on top of it.
 
 server {
     listen 80;
@@ -9,9 +10,6 @@ server {
 
     root /opt/interactive-study-boox/client/dist;
     index index.html;
-
-    auth_basic "Interactive Study BOOX";
-    auth_basic_user_file /etc/nginx/.interactive-study-boox.htpasswd;
 
     client_max_body_size 1m;
 

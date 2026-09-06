@@ -4,7 +4,7 @@
 
 ```text
 浏览器
-  → Nginx（Basic Auth，公开入口）
+  → Nginx（HTTPS 反向代理）
   → 127.0.0.1:3001（Express，仅 VPS 本机可访问）
   → /opt/learn-everything（私有学习资料仓库）
 ```
@@ -54,7 +54,21 @@ WRITE_SAFETY_ROOT=/opt/interactive-study-boox/server/.interactive-study-boox
 GIT_SYNC_ENABLED=true
 GIT_SYNC_REMOTE=origin
 GIT_SYNC_BRANCH=main
+AUTH_ENABLED=true
+AUTH_PASSWORD_HASH=替换为生成的 scrypt 哈希
+AUTH_SESSION_TTL_DAYS=7
+AUTH_SESSION_FILE=/opt/interactive-study-boox/server/.interactive-study-boox/auth-sessions.json
+AUTH_COOKIE_SECURE=true
 ```
+
+生成应用登录密码哈希。密码只在 VPS 终端输入，不要写入 Git 或发送到聊天中：
+
+```bash
+cd /opt/interactive-study-boox/server
+sudo -u studyboox npm run auth:hash
+```
+
+把命令输出的整行哈希填入 `AUTH_PASSWORD_HASH`。`AUTH_SESSION_FILE` 只保存哈希后的会话标识和过期时间，服务用户需要对它所在目录拥有写权限。
 
 限制环境文件权限，并让服务用户能够读取：
 
@@ -76,19 +90,9 @@ curl --fail http://127.0.0.1:3001/api/health
 
 只有看到 `{"status":"ok"}` 后，才继续配置 Nginx。
 
-## 5. 配置最小访问保护
+## 5. 配置 HTTPS 反向代理
 
-Basic Auth 的密码哈希保存在 VPS 的 `/etc`，不进入仓库：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y apache2-utils
-sudo htpasswd -c /etc/nginx/.interactive-study-boox.htpasswd studyboox
-sudo chmod 640 /etc/nginx/.interactive-study-boox.htpasswd
-sudo chown root:www-data /etc/nginx/.interactive-study-boox.htpasswd
-```
-
-然后安装 Nginx 配置：
+应用登录由 Express 处理，Nginx 只负责 HTTPS、静态文件和反向代理。安装配置：
 
 ```bash
 sudo install -m 644 deploy/nginx/interactive-study-boox.conf.example \
@@ -99,12 +103,26 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-模板默认使用 `server_name _`，因此可以先用 VPS IP 做临时连通性检查。正式使用前必须绑定域名并配置 HTTPS；不要在没有 HTTPS 的公网 HTTP 页面中输入真实 Basic Auth 密码。
+模板默认使用 `server_name _`，因此可以先用 VPS IP 做临时连通性检查。正式使用前必须绑定域名并配置 HTTPS；不要在没有 HTTPS 的公网 HTTP 页面中输入应用登录密码。
+
+如果旧配置中存在以下两行，需要删除后再 reload Nginx，否则仍会弹出 Basic Auth 对话框：
+
+```nginx
+auth_basic ...;
+auth_basic_user_file ...;
+```
+
+启用应用登录后重启 Express：
+
+```bash
+sudo systemctl restart interactive-study-boox
+sudo systemctl status interactive-study-boox --no-pager
+```
 
 ## 6. 验收顺序
 
 1. VPS 本机请求 `http://127.0.0.1:3001/api/health`。
 2. VPS 本机请求 `http://127.0.0.1:3001/api/library`，确认读取的是私有学习库。
-3. 电脑浏览器访问 Nginx 地址，确认出现登录框并能打开页面。
+3. 电脑浏览器访问 HTTPS 地址，确认出现网页内的应用登录页并能打开页面。
 4. 登录后确认网页请求 `/api/library` 和 `/api/article` 成功。
 5. 最后再测试手机/BOOX；不再用手机反复判断 Nginx 是否启动。

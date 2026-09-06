@@ -7,6 +7,7 @@ import android.text.InputType;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 import android.webkit.HttpAuthHandler;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -23,6 +24,8 @@ import com.getcapacitor.BridgeWebViewClient;
 public class MainActivity extends BridgeActivity {
 
     private SwipeRefreshLayout refreshLayout;
+    private volatile boolean readerCanScrollUp;
+    private final ReaderScrollBridge readerScrollBridge = new ReaderScrollBridge();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -95,12 +98,15 @@ public class MainActivity extends BridgeActivity {
         ViewGroup.LayoutParams originalLayoutParams = webView.getLayoutParams();
 
         container.removeView(webView);
+        webView.addJavascriptInterface(readerScrollBridge, "InteractiveStudyNative");
 
         refreshLayout = new SwipeRefreshLayout(this);
         refreshLayout.setLayoutParams(originalLayoutParams);
         refreshLayout.setColorSchemeColors(Color.DKGRAY);
+        // The page scrolls inside .reader-scroll, not in WebView itself. Report that
+        // inner position to SwipeRefreshLayout so it only intercepts a pull at the top.
         refreshLayout.setOnChildScrollUpCallback(
-            (parentLayout, child) -> webView.canScrollVertically(-1)
+            (parentLayout, child) -> webView.canScrollVertically(-1) || readerCanScrollUp
         );
         refreshLayout.setOnRefreshListener(() -> webView.reload());
         refreshLayout.addView(
@@ -126,6 +132,7 @@ public class MainActivity extends BridgeActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                installReaderScrollStateBridge(view);
                 stopRefreshing();
             }
 
@@ -149,6 +156,35 @@ public class MainActivity extends BridgeActivity {
                 stopRefreshing();
             }
         });
+    }
+
+    private void installReaderScrollStateBridge(WebView webView) {
+        webView.evaluateJavascript(
+            "(function(){" +
+                "const bridge=window.InteractiveStudyNative;" +
+                "if(!bridge){return;}" +
+                "const report=function(){" +
+                    "const reader=document.querySelector('.reader-scroll');" +
+                    "const top=reader?reader.scrollTop:window.scrollY;" +
+                    "bridge.setReaderCanScrollUp(top>0);" +
+                "};" +
+                "const attach=function(){" +
+                    "const reader=document.querySelector('.reader-scroll');" +
+                    "if(!reader){report();return;}" +
+                    "if(reader.dataset.interactiveStudyRefreshBridge!=='1'){" +
+                        "reader.dataset.interactiveStudyRefreshBridge='1';" +
+                        "reader.addEventListener('scroll',report,{passive:true});" +
+                    "}" +
+                    "report();" +
+                "};" +
+                "if(!window.interactiveStudyRefreshObserver){" +
+                    "window.interactiveStudyRefreshObserver=new MutationObserver(attach);" +
+                    "window.interactiveStudyRefreshObserver.observe(document.documentElement,{childList:true,subtree:true});" +
+                "}" +
+                "attach();" +
+            "})()",
+            null
+        );
     }
 
     private void showHttpAuthDialog(HttpAuthHandler handler, String host, String realm) {
@@ -222,6 +258,13 @@ public class MainActivity extends BridgeActivity {
     private void stopRefreshing() {
         if (refreshLayout != null) {
             refreshLayout.setRefreshing(false);
+        }
+    }
+
+    private final class ReaderScrollBridge {
+        @JavascriptInterface
+        public void setReaderCanScrollUp(boolean canScrollUp) {
+            readerCanScrollUp = canScrollUp;
         }
     }
 }
