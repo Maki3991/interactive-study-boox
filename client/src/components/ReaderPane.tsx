@@ -10,6 +10,8 @@ interface ReaderPaneProps {
   restoreScrollRatio: number
   feedback: string
   feedbackRef: RefObject<HTMLTextAreaElement | null>
+  floatingFeedbackRef: RefObject<HTMLTextAreaElement | null>
+  feedbackDialogOpen: boolean
   feedbackStatus: { kind: 'success' | 'error'; message: string } | null
   isFeedbackSaving: boolean
   isNextLessonGenerating: boolean
@@ -19,6 +21,8 @@ interface ReaderPaneProps {
   hasSavedFeedback: boolean
   syncPanelOpen: boolean
   onFeedbackChange: (value: string) => void
+  onOpenFeedbackDialog: () => void
+  onCloseFeedbackDialog: () => void
   onSaveFeedback: () => void | Promise<void>
   onGenerateNextLesson: () => void | Promise<void>
   onRollback: () => void | Promise<void>
@@ -60,6 +64,8 @@ function ReaderPane({
   restoreScrollRatio,
   feedback,
   feedbackRef,
+  floatingFeedbackRef,
+  feedbackDialogOpen,
   feedbackStatus,
   isFeedbackSaving,
   isNextLessonGenerating,
@@ -69,6 +75,8 @@ function ReaderPane({
   hasSavedFeedback,
   syncPanelOpen,
   onFeedbackChange,
+  onOpenFeedbackDialog,
+  onCloseFeedbackDialog,
   onSaveFeedback,
   onGenerateNextLesson,
   onRollback,
@@ -168,6 +176,13 @@ function ReaderPane({
         <div className="reader-header-actions">
           <p className="reader-file-name">{article.fileName}</p>
           <button
+            className="reader-feedback-toggle"
+            type="button"
+            onClick={onOpenFeedbackDialog}
+          >
+            写反馈
+          </button>
+          <button
             className={`reader-sync-toggle${syncPanelOpen ? ' is-active' : ''}`}
             type="button"
             aria-label={syncPanelOpen ? '关闭 GitHub 同步侧栏' : '打开 GitHub 同步侧栏'}
@@ -238,6 +253,44 @@ function ReaderPane({
           onRollback={onRollback}
         />
       </div>
+
+      {!feedbackDialogOpen && (
+        <button
+          className="reader-feedback-launcher"
+          type="button"
+          onClick={onOpenFeedbackDialog}
+        >
+          写反馈
+        </button>
+      )}
+
+      {feedbackDialogOpen && (
+        <div className="feedback-dialog-layer">
+          <button
+            className="feedback-dialog-backdrop"
+            type="button"
+            aria-label="关闭反馈窗口，保留当前草稿"
+            onClick={onCloseFeedbackDialog}
+          />
+          <FeedbackPanel
+            feedback={feedback}
+            feedbackRef={floatingFeedbackRef}
+            feedbackStatus={feedbackStatus}
+            isSaving={isFeedbackSaving}
+            isGenerating={isNextLessonGenerating}
+            generationState={generationState}
+            generationRecovery={generationRecovery}
+            isRollingBack={isRollingBack}
+            hasSavedFeedback={hasSavedFeedback}
+            onFeedbackChange={onFeedbackChange}
+            onSave={onSaveFeedback}
+            onGenerate={onGenerateNextLesson}
+            onRollback={onRollback}
+            variant="floating"
+            onClose={onCloseFeedbackDialog}
+          />
+        </div>
+      )}
     </section>
   )
 }

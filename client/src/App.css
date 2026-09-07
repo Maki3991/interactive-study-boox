@@ -419,6 +419,22 @@
   gap: 12px;
 }
 
+.reader-feedback-toggle {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 6px 12px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.reader-feedback-toggle:hover,
+.reader-feedback-toggle:focus-visible {
+  background: var(--quiet);
+}
+
 .reader-sync-toggle {
   display: grid;
   width: 36px;
@@ -766,6 +782,79 @@
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
+.feedback-dialog-layer {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.feedback-dialog-backdrop {
+  position: fixed;
+  z-index: 0;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: rgb(24 24 24 / 42%);
+}
+
+.feedback-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 720px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border: 1px solid #777772;
+  padding: 24px 28px 28px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgb(24 24 24 / 22%);
+}
+
+.feedback-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.feedback-dialog-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.feedback-dialog-eyebrow {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.feedback-dialog-close {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 27px;
+  line-height: 1;
+}
+
+.feedback-dialog-close:hover,
+.feedback-dialog-close:focus-visible {
+  background: var(--quiet);
+}
+
+.reader-feedback-launcher {
+  display: none;
+}
+
 .feedback-divider {
   height: 1px;
   margin-bottom: 28px;
@@ -949,6 +1038,22 @@
     display: none;
   }
 
+  .reader-feedback-launcher {
+    position: fixed;
+    z-index: 3;
+    right: 18px;
+    bottom: 18px;
+    display: block;
+    min-height: 48px;
+    border: 1px solid #1b1b1a;
+    border-radius: 2px;
+    padding: 8px 14px;
+    color: #171717;
+    background: #ffffff;
+    font-size: 16px;
+    font-weight: 650;
+  }
+
   .reader-scroll {
     padding-bottom: 18px;
   }
@@ -973,6 +1078,23 @@
 
   .feedback-panel {
     padding: 34px 27px 110px;
+  }
+
+  .feedback-dialog {
+    max-height: calc(100dvh - 28px);
+    padding: 20px 20px 24px;
+  }
+
+  .feedback-dialog .feedback-panel {
+    padding: 0;
+  }
+
+  .feedback-dialog-header h2 {
+    font-size: 20px;
+  }
+
+  .feedback-dialog .feedback-help {
+    margin-top: 10px;
   }
 
   .feedback-panel textarea {
