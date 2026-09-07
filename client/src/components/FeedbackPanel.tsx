@@ -15,6 +15,8 @@ interface FeedbackPanelProps {
   onSave: () => void | Promise<void>
   onGenerate: () => void | Promise<void>
   onRollback: () => void | Promise<void>
+  variant?: 'inline' | 'floating'
+  onClose?: () => void
 }
 
 function FeedbackPanel({
@@ -31,20 +33,60 @@ function FeedbackPanel({
   onSave,
   onGenerate,
   onRollback,
+  variant = 'inline',
+  onClose,
 }: FeedbackPanelProps) {
   const isBusy = isSaving || isGenerating || generationState !== 'ready'
   const canSubmit = feedback.trim().length > 0 && !isBusy
   const canGenerate =
     (feedback.trim().length > 0 || hasSavedFeedback) && !isBusy && generationState === 'ready'
+  const isFloating = variant === 'floating'
+  const headingId = isFloating ? 'floating-feedback-heading' : 'feedback-heading'
+  const inputId = isFloating ? 'floating-feedback-input' : 'feedback-input'
+
+  if (isFloating) {
+    return (
+      <section
+        className="feedback-panel feedback-dialog"
+        role="dialog"
+        aria-label="临时反馈输入框"
+        aria-busy={isBusy}
+      >
+        <button
+          className="feedback-dialog-close"
+          type="button"
+          aria-label="关闭临时反馈输入框，保留当前草稿"
+          title="关闭并保留草稿"
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <textarea
+          ref={feedbackRef}
+          id={inputId}
+          value={feedback}
+          rows={6}
+          placeholder="记录阅读中的想法……"
+          disabled={isBusy}
+          onChange={(event) => onFeedbackChange(event.target.value)}
+        />
+      </section>
+    )
+  }
 
   return (
-    <section className="feedback-panel" aria-labelledby="feedback-heading" aria-busy={isBusy}>
+    <section
+      className="feedback-panel"
+      aria-labelledby={headingId}
+      aria-busy={isBusy}
+    >
       <div className="feedback-divider" aria-hidden="true" />
-      <h2 id="feedback-heading">学习反馈</h2>
+      <h2 id={headingId}>学习反馈</h2>
       <p className="feedback-help">说说你理解了什么、哪里卡住了，或希望下一篇怎么继续。</p>
 
       <textarea
         ref={feedbackRef}
+        id={inputId}
         value={feedback}
         rows={6}
         placeholder="这里可以直接打字，也可以调用 BOOX 系统的语音转文字。"
