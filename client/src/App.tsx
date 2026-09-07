@@ -190,6 +190,7 @@ function StudyApp({ onLogout }: StudyAppProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileView, setMobileView] = useState<'reader' | 'library'>('reader')
   const [readerMenuOpen, setReaderMenuOpen] = useState(false)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [syncPanelOpen, setSyncPanelOpen] = useState(false)
   const [feedback, setFeedback] = useState('')
   const [isFeedbackSaving, setIsFeedbackSaving] = useState(false)
@@ -207,6 +208,7 @@ function StudyApp({ onLogout }: StudyAppProps) {
   const [syncCommitMessage, setSyncCommitMessage] = useState('')
   const [syncNotice, setSyncNotice] = useState<FeedbackStatus | null>(null)
   const feedbackRef = useRef<HTMLTextAreaElement>(null)
+  const floatingFeedbackRef = useRef<HTMLTextAreaElement>(null)
   const savedArticlePathRef = useRef(readStorageValue(lastArticleStorageKey))
   const latestArticleRequestRef = useRef(0)
   const latestFeedbackRequestRef = useRef(0)
@@ -295,6 +297,7 @@ function StudyApp({ onLogout }: StudyAppProps) {
     setFeedbackStatus(null)
     setMobileView('reader')
     setReaderMenuOpen(false)
+    setFeedbackDialogOpen(false)
     setSyncPanelOpen(false)
 
     try {
@@ -374,6 +377,8 @@ function StudyApp({ onLogout }: StudyAppProps) {
           ? '这份反馈此前已经保存，系统没有重复写入。'
           : '反馈已安全保存到当前 Markdown 文件。',
       })
+      setFeedback('')
+      pendingFeedbackSubmissionRef.current = null
       void refreshSyncStatus()
     } catch (error) {
       if (requestId !== latestFeedbackRequestRef.current) {
@@ -665,11 +670,15 @@ function StudyApp({ onLogout }: StudyAppProps) {
     setMobileView('reader')
     setReaderMenuOpen(false)
     setSyncPanelOpen(false)
+    setFeedbackDialogOpen(true)
 
     window.setTimeout(() => {
-      feedbackRef.current?.scrollIntoView({ block: 'start' })
-      feedbackRef.current?.focus({ preventScroll: true })
+      floatingFeedbackRef.current?.focus({ preventScroll: true })
     }, 0)
+  }, [])
+
+  const handleCloseFeedbackDialog = useCallback(() => {
+    setFeedbackDialogOpen(false)
   }, [])
 
   const handleShowLibrary = useCallback(() => {
@@ -773,6 +782,8 @@ function StudyApp({ onLogout }: StudyAppProps) {
         restoreScrollRatio={restoreScrollRatio}
         feedback={feedback}
         feedbackRef={feedbackRef}
+        floatingFeedbackRef={floatingFeedbackRef}
+        feedbackDialogOpen={feedbackDialogOpen}
         feedbackStatus={feedbackStatus}
         isFeedbackSaving={isFeedbackSaving}
         isNextLessonGenerating={isNextLessonGenerating}
@@ -782,6 +793,8 @@ function StudyApp({ onLogout }: StudyAppProps) {
         hasSavedFeedback={Boolean(currentArticle.latestFeedback?.feedback.trim())}
         syncPanelOpen={syncPanelOpen}
         onFeedbackChange={handleFeedbackChange}
+        onOpenFeedbackDialog={handleFocusFeedback}
+        onCloseFeedbackDialog={handleCloseFeedbackDialog}
         onSaveFeedback={handleSaveFeedback}
         onGenerateNextLesson={handleGenerateNextLesson}
         onRollback={handleRollbackGeneration}
