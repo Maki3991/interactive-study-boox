@@ -44,35 +44,44 @@ function FeedbackPanel({
   const headingId = isFloating ? 'floating-feedback-heading' : 'feedback-heading'
   const inputId = isFloating ? 'floating-feedback-input' : 'feedback-input'
 
+  if (isFloating) {
+    return (
+      <section
+        className="feedback-panel feedback-dialog"
+        role="dialog"
+        aria-label="临时反馈输入框"
+        aria-busy={isBusy}
+      >
+        <button
+          className="feedback-dialog-close"
+          type="button"
+          aria-label="关闭临时反馈输入框，保留当前草稿"
+          title="关闭并保留草稿"
+          onClick={onClose}
+        >
+          ×
+        </button>
+        <textarea
+          ref={feedbackRef}
+          id={inputId}
+          value={feedback}
+          rows={6}
+          placeholder="记录阅读中的想法……"
+          disabled={isBusy}
+          onChange={(event) => onFeedbackChange(event.target.value)}
+        />
+      </section>
+    )
+  }
+
   return (
     <section
-      className={`feedback-panel${isFloating ? ' feedback-dialog' : ''}`}
+      className="feedback-panel"
       aria-labelledby={headingId}
       aria-busy={isBusy}
-      {...(isFloating ? { role: 'dialog', 'aria-modal': true } : {})}
     >
-      {isFloating ? (
-        <header className="feedback-dialog-header">
-          <div>
-            <p className="feedback-dialog-eyebrow">当前文章</p>
-            <h2 id={headingId}>学习反馈</h2>
-          </div>
-          <button
-            className="feedback-dialog-close"
-            type="button"
-            aria-label="关闭反馈窗口，保留当前草稿"
-            title="关闭并保留草稿"
-            onClick={onClose}
-          >
-            ×
-          </button>
-        </header>
-      ) : (
-        <>
-          <div className="feedback-divider" aria-hidden="true" />
-          <h2 id={headingId}>学习反馈</h2>
-        </>
-      )}
+      <div className="feedback-divider" aria-hidden="true" />
+      <h2 id={headingId}>学习反馈</h2>
       <p className="feedback-help">说说你理解了什么、哪里卡住了，或希望下一篇怎么继续。</p>
 
       <textarea

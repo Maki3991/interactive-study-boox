@@ -254,24 +254,8 @@ function ReaderPane({
         />
       </div>
 
-      {!feedbackDialogOpen && (
-        <button
-          className="reader-feedback-launcher"
-          type="button"
-          onClick={onOpenFeedbackDialog}
-        >
-          写反馈
-        </button>
-      )}
-
       {feedbackDialogOpen && (
         <div className="feedback-dialog-layer">
-          <button
-            className="feedback-dialog-backdrop"
-            type="button"
-            aria-label="关闭反馈窗口，保留当前草稿"
-            onClick={onCloseFeedbackDialog}
-          />
           <FeedbackPanel
             feedback={feedback}
             feedbackRef={floatingFeedbackRef}
