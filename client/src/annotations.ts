@@ -79,6 +79,26 @@ export function stripStudyMarkupForRender(markdown: string) {
   return stripStudyMarkTags(markdown.replace(annotationMetadataPattern, ''))
 }
 
+/**
+ * The server stores a paragraph's ordinal among ordinary Markdown blocks.
+ * ReactMarkdown's source offsets are not stable here because the saved study
+ * mark tags are removed before rendering, so assign the same ordinal after
+ * the DOM has been created.
+ */
+export function assignStudyParagraphIndices(articleRoot: HTMLElement) {
+  let paragraphIndex = 0
+
+  for (const paragraph of Array.from(articleRoot.querySelectorAll<HTMLElement>('p'))) {
+    if (paragraph.closest('li, blockquote, td, th') !== null) {
+      paragraph.removeAttribute('data-study-paragraph-index')
+      continue
+    }
+
+    paragraph.dataset.studyParagraphIndex = String(paragraphIndex)
+    paragraphIndex += 1
+  }
+}
+
 export function getStudyAnnotationClasses(annotation: Pick<StudyAnnotation, 'flags' | 'note'>) {
   const classes = ['study-mark']
 

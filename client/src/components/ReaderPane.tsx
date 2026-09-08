@@ -7,6 +7,7 @@ import type {
 import Markdown from 'react-markdown'
 import {
   applyStudyAnnotations,
+  assignStudyParagraphIndices,
   captureStudySelection,
   normalizeStudyText,
   stripStudyMarkupForRender,
@@ -178,6 +179,7 @@ function ReaderPane({
     const articleRoot = articleRootRef.current
 
     if (articleRoot) {
+      assignStudyParagraphIndices(articleRoot)
       applyStudyAnnotations(articleRoot, article.annotations)
     }
   }, [article.markdown, article.annotations])
@@ -436,13 +438,8 @@ function ReaderPane({
           <Markdown
             skipHtml
             components={{
-              p({ children, node }) {
-                const currentParagraphIndex =
-                  (node as { position?: { start?: { offset?: number } } }).position?.start?.offset ?? 0
-
-                return (
-                  <p data-study-paragraph-index={currentParagraphIndex}>{children}</p>
-                )
+              p({ children }) {
+                return <p>{children}</p>
               },
               a({ href, children }) {
                 const linkedArticlePath = resolveMarkdownArticlePath(href, article.relativePath)
