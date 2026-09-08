@@ -41,6 +41,32 @@ export interface ReadingPosition {
 export type ArticleKind = 'plan' | 'lesson' | 'source' | 'other'
 export type GenerationState = 'ready' | 'in-progress' | 'completed'
 
+export type StudyAnnotationFlag = 'unknown' | 'favorite'
+
+export interface StudyAnnotationSegment {
+  paragraphIndex: number
+  paragraphText: string
+  start: number
+  end: number
+  quote: string
+}
+
+export interface StudyAnnotation {
+  id: string
+  flags: StudyAnnotationFlag[]
+  note: string | null
+  segments: StudyAnnotationSegment[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StudyAnnotationInput {
+  id: string
+  flags: StudyAnnotationFlag[]
+  note: string | null
+  segments: StudyAnnotationSegment[]
+}
+
 export type LibraryEntry = FolderNode | MarkdownFileNode
 
 export interface FolderNode {
@@ -66,6 +92,8 @@ export interface ArticleContent {
   relativePath: string
   kind: ArticleKind
   markdown: string
+  markdownHash: string
+  annotations: StudyAnnotation[]
   latestFeedback: {
     feedback: string
     submissionId: string
@@ -86,6 +114,26 @@ export interface SaveFeedbackResponse {
   currentArticlePath: string
   submissionId: string
   alreadySaved: boolean
+  markdown: string
+  markdownHash: string
+  annotations: StudyAnnotation[]
+}
+
+export type StudyAnnotationOperation = 'create' | 'update' | 'remove'
+
+export interface SaveAnnotationRequest {
+  articlePath: string
+  articleHash: string
+  operation: StudyAnnotationOperation
+  annotation: StudyAnnotationInput
+}
+
+export interface SaveAnnotationResponse {
+  annotationSaved: true
+  articlePath: string
+  markdown: string
+  markdownHash: string
+  annotations: StudyAnnotation[]
 }
 
 export type LessonRoute = 'advance' | 'supplement'

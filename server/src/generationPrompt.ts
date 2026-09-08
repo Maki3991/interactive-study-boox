@@ -1,4 +1,5 @@
 import * as path from 'node:path'
+import { parseStudyAnnotations, stripStudyMarkup } from './annotations.js'
 import type { LearningContext, SourceReference } from './learningContext.js'
 import type { LessonRouteDecision } from './learningRoute.js'
 
@@ -84,14 +85,44 @@ function formatSourceReferenceList(sourceRefs: SourceReference[]) {
     : '（当前学习计划没有预先指定下一篇原文，由你根据原文索引选择。）'
 }
 
+function formatStudyAnnotationSection(context: LearningContext) {
+  const annotations = parseStudyAnnotations(context.currentArticle.markdown)
+
+  if (annotations.length === 0) {
+    return '## 当前文章中的标记\n\n（当前文章没有波浪线、高光或批注。）'
+  }
+
+  const records = annotations.flatMap((annotation) => {
+    const types = [
+      ...(annotation.flags.includes('unknown') ? ['波浪线：用户暂时不理解'] : []),
+      ...(annotation.flags.includes('favorite') ? ['高光：用户认为重要或喜欢'] : []),
+      ...(annotation.note !== null ? ['批注'] : []),
+    ].join('、')
+
+    return annotation.segments.map((segment) => {
+      const note = annotation.note === null ? '无批注' : `批注内容：${annotation.note}`
+      return `- ${types || '标记'}；原文：“${segment.quote}”；${note}`
+    })
+  })
+
+  return [
+    '## 当前文章中的标记与批注',
+    '',
+    '以下内容是用户在阅读时主动留下的局部信号。波浪线和批注优先用于识别需要解释或补充的地方；高光只表示用户认为重要或喜欢，默认不要把高光当作“已经理解”或“没有疑问”的证据。',
+    '',
+    records.join('\n'),
+  ].join('\n')
+}
+
 export function buildLessonRoutePrompt(context: LearningContext, feedback: string) {
   const sourceIndex = context.sourceIndexFile?.markdown ?? '（未找到原文索引。）'
 
   return [
     routeDecisionRules,
     `## 学习计划\n\n${context.planFile.markdown}`,
-    `## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${context.currentArticle.markdown}`,
+    `## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${stripStudyMarkup(context.currentArticle.markdown)}`,
     `## 用户本轮反馈\n\n<user_feedback>\n${feedback}\n</user_feedback>`,
+    formatStudyAnnotationSection(context),
     formatSourceSection(context, '当前文章对应的原始材料', context.currentSourceRefs),
     `## 学习计划给出的下一篇候选原文\n\n${formatSourceReferenceList(context.nextSourceRefs)}`,
     `## 原文索引\n\n<source_index>\n${sourceIndex}\n</source_index>`,
@@ -115,8 +146,9 @@ export function buildNextLessonPrompt(
     `路径判断依据：${decision.reason}`,
     `本次教学重点：${decision.focus}`,
     `\n## 学习计划\n\n${context.planFile.markdown}`,
-    `\n## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${context.currentArticle.markdown}`,
+    `\n## 当前学习文章\n\n文件：${context.currentArticle.relativePath}\n\n${stripStudyMarkup(context.currentArticle.markdown)}`,
     `\n## 用户本轮反馈\n\n<user_feedback>\n${feedback}\n</user_feedback>`,
+    formatStudyAnnotationSection(context),
     formatSourceSection(context, '当前文章对应的原始材料', context.currentSourceRefs),
     formatSourceSection(context, '本次选择的原始材料', decision.sourceRefs, selectedSourceFiles),
     `请根据以上材料生成下一篇学习文章。本篇应当${routeLabel}，并具体回应用户反馈。`,

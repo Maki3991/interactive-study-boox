@@ -299,3 +299,18 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 - P2 的 release 签名密钥保存位置、WebView 认证处理和 BOOX 系统导航栏策略已经形成首版方案；首版包名已确定为 `xyz.maki3991.interactivestudy`，真机核对留待首次使用。
 - Leaf 5 真机上的 Markdown 渲染和输入法兼容性，只有出现实际问题时再处理。
 - 项目当前进入真实学习观察期；新增功能、分页阅读和离线阅读暂不作为本次提交范围。
+
+## 8. 文章标记与批注链路（第一阶段）
+
+```text
+用户选中普通段落中的文字
+  → ReaderPane.captureStudySelection 计算段落文本、规范化偏移和悬浮框位置
+  → POST /api/annotations 携带 articleHash、操作类型和 annotation
+  → 服务端在文章写锁内校验版本并把自有 span + 隐藏 JSON 元数据原子写回当前 .md
+  → GET /api/article 返回 markdown、markdownHash 和 annotations
+  → 前端去除自有存储标签后渲染 Markdown，再在 DOM 中恢复波浪线/高光/批注角标
+```
+
+标记写入与反馈写入共用当前文章的串行写锁，并使用文章 SHA-256 版本校验；如果电脑或 Obsidian 已经修改了文件，网站会拒绝旧选择，要求刷新后重新选择。AI 生成上下文会去掉存储用 HTML 标签，同时单独提供波浪线、高光和批注的结构化列表。
+
+第一阶段的选择范围是同一普通段落，禁止代码、链接、列表、复杂内联格式和重叠标记。`segments` 数组是跨段扩展的预留接口，不代表当前 UI 已经支持跨段操作。

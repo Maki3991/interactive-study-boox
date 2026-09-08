@@ -899,5 +899,80 @@ P1 的同步状态、ahead/behind 数量和 Git commit 元数据由 VPS 工作�
 - 固定提示词的最终内容。
 - 遇到不规范文章文件名时如何计算下一篇编号。
 - 原文映射是否细化到 Markdown 标题或小节。
+
 - 学习库使用系统文件夹选择器还是先手动填写路径。
 - P1 的 VPS 访问鉴权、Git 凭据形式和远程领先时的拉取/冲突解决流程。
+
+## 11. 文章内标记与批注（第一阶段已实现）
+
+### 11.1 保存格式
+
+当前课程文章可以包含以下自有正文标记：
+
+```html
+<span class="study-mark study-unknown" data-study-id="...">选中的原文</span>
+```
+
+文章中另有一个隐藏元数据块：
+
+```markdown
+<!-- interactive-study-boox:annotations
+[
+  {
+    "id": "...",
+    "flags": ["unknown"],
+    "note": "我的批注",
+    "segments": [
+      {
+        "paragraphIndex": 123,
+        "paragraphText": "整段规范化文本",
+        "start": 0,
+        "end": 4,
+        "quote": "选中的原文"
+      }
+    ],
+    "createdAt": "...",
+    "updatedAt": "..."
+  }
+]
+-->
+```
+
+`flags` 当前允许 `unknown`（波浪线）和 `favorite`（高光）；`note` 可以为空。一个 annotation 可以包含多个 `segments`，但第一阶段 UI 只创建一个段落片段；选择定位暂不覆盖代码、链接、列表或复杂内联格式。
+
+### 11.2 `GET /api/article`
+
+除原有字段外，文章响应增加：
+
+- `markdownHash`：当前 Markdown 原文的 SHA-256，用于防止旧页面覆盖新文件。
+- `annotations`：服务端解析出的标记记录。
+
+### 11.3 `POST /api/annotations`
+
+请求体：
+
+```json
+{
+  "articlePath": "on-going/example/01.md",
+  "articleHash": "当前文章的 SHA-256",
+  "operation": "create",
+  "annotation": {
+    "id": "客户端生成的 ID",
+    "flags": ["unknown"],
+    "note": null,
+    "segments": [
+      {
+        "paragraphIndex": 123,
+        "paragraphText": "整段规范化文本",
+        "start": 0,
+        "end": 4,
+        "quote": "选中的原文"
+      }
+    ]
+  }
+}
+```
+
+`operation` 当前支持 `create`、`update`、`remove`。服务端只允许编号学习文章，先校验文章版本，再在文章写锁内原子写入。成功响应返回最新 `markdown`、`markdownHash` 和 `annotations`。版本不一致、原文定位失败或标记重叠时返回可理解的错误，不覆盖文件。
+
+波浪线和批注会在生成下一篇的 AI 上下文中被结构化提供；高光只作为弱信号提供，暂不参与路径判断，也没有导出接口。

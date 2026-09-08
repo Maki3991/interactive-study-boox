@@ -5,6 +5,8 @@ import type {
   RollbackGenerationResponse,
   SaveFeedbackRequest,
   SaveFeedbackResponse,
+  SaveAnnotationRequest,
+  SaveAnnotationResponse,
   SyncPushResponse,
   SyncPullResponse,
   SyncStatus,
@@ -116,6 +118,14 @@ export function rollbackGeneration(operationId: string) {
 
 export function loadSyncStatus(refreshRemote = false) {
   return requestJson<SyncStatus>(`/sync/status${refreshRemote ? '?refresh=1' : ''}`)
+}
+
+export function saveAnnotation(request: SaveAnnotationRequest) {
+  return requestJson<SaveAnnotationResponse>('/annotations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
 }
 
 export function pushSync(message?: string) {
