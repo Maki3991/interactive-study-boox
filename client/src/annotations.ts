@@ -359,6 +359,49 @@ function addCommentButton(wrapper: HTMLElement, annotationId: string) {
   wrapper.append(button)
 }
 
+function hasExpectedStudyAnnotations(
+  articleRoot: HTMLElement,
+  annotations: StudyAnnotation[],
+) {
+  const renderedWrappers = Array.from(
+    articleRoot.querySelectorAll<HTMLElement>('[data-study-id].study-mark'),
+  ).filter((wrapper) => wrapper.parentElement?.closest('[data-study-id].study-mark') === null)
+
+  if (annotations.length === 0) {
+    return renderedWrappers.length === 0
+  }
+
+  const expectedWrapperCount = annotations.reduce(
+    (count, annotation) => count + annotation.segments.length,
+    0,
+  )
+
+  if (renderedWrappers.length !== expectedWrapperCount) {
+    return false
+  }
+
+  return annotations.every((annotation) => {
+    const annotationWrappers = renderedWrappers.filter(
+      (wrapper) => wrapper.dataset.studyId === annotation.id,
+    )
+
+    if (
+      annotationWrappers.length !== annotation.segments.length ||
+      annotationWrappers.some(
+        (wrapper) => wrapper.className !== getStudyAnnotationClasses(annotation),
+      )
+    ) {
+      return false
+    }
+
+    const commentButtonCount = annotationWrappers.filter(
+      (wrapper) => wrapper.querySelector('[data-study-comment-button]') !== null,
+    ).length
+
+    return commentButtonCount === (annotation.note === null ? 0 : 1)
+  })
+}
+
 function wrapAnnotationRange(
   paragraph: HTMLElement,
   annotation: StudyAnnotation,
@@ -405,6 +448,10 @@ export function applyStudyAnnotations(
   articleRoot: HTMLElement,
   annotations: StudyAnnotation[],
 ) {
+  if (hasExpectedStudyAnnotations(articleRoot, annotations)) {
+    return
+  }
+
   const renderedWrappers = Array.from(
     articleRoot.querySelectorAll<HTMLElement>('[data-study-id].study-mark'),
   ).filter((wrapper) => wrapper.parentElement?.closest('[data-study-id].study-mark') === null)

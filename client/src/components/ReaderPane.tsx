@@ -182,7 +182,7 @@ function ReaderPane({
       assignStudyParagraphIndices(articleRoot)
       applyStudyAnnotations(articleRoot, article.annotations)
     }
-  }, [article.markdown, article.annotations])
+  })
 
   useEffect(() => {
     if (commentEditorOpen) {
