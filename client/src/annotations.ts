@@ -348,6 +348,61 @@ function getParagraphForSegment(
   return matchingParagraphs.length === 1 ? matchingParagraphs[0] : null
 }
 
+export function restoreStudySelection(
+  articleRoot: HTMLElement,
+  segment: StudyAnnotation['segments'][number],
+) {
+  const selection = window.getSelection()
+
+  if (!selection) {
+    return false
+  }
+
+  const paragraphs = Array.from(
+    articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
+  )
+  const paragraph = getParagraphForSegment(paragraphs, segment)
+
+  if (!paragraph) {
+    return false
+  }
+
+  const textMap = buildNormalizedTextMap(paragraph)
+
+  if (
+    textMap.text !== segment.paragraphText ||
+    segment.start < 0 ||
+    segment.end > textMap.text.length ||
+    textMap.text.slice(segment.start, segment.end) !== segment.quote
+  ) {
+    return false
+  }
+
+  const startUnit = textMap.units[segment.start]
+  const endUnit = textMap.units[segment.end - 1]
+
+  if (!startUnit || !endUnit) {
+    return false
+  }
+
+  if (
+    selection.rangeCount > 0 &&
+    !selection.isCollapsed &&
+    normalizeText(selection.toString()) === segment.quote &&
+    articleRoot.contains(selection.anchorNode) &&
+    articleRoot.contains(selection.focusNode)
+  ) {
+    return true
+  }
+
+  const range = document.createRange()
+  range.setStart(startUnit.node, startUnit.rawStart - getRawTextOffset(paragraph, startUnit.node, 0))
+  range.setEnd(endUnit.node, endUnit.rawEnd - getRawTextOffset(paragraph, endUnit.node, 0))
+  selection.removeAllRanges()
+  selection.addRange(range)
+  return true
+}
+
 function addCommentButton(wrapper: HTMLElement, annotationId: string) {
   const button = document.createElement('button')
   button.type = 'button'

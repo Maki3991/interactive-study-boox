@@ -782,7 +782,7 @@
 
 .study-annotation-toolbar {
   display: flex;
-  width: min(270px, calc(100vw - 16px));
+  width: min(360px, calc(100vw - 16px));
   min-height: 44px;
   align-items: stretch;
 }
@@ -923,6 +923,20 @@
   white-space: pre-wrap;
   font-size: 14px;
   line-height: 1.6;
+}
+
+.study-annotation-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.study-annotation-popover-actions .secondary-button {
+  min-height: 36px;
+  margin-top: 0;
+  padding: 7px 12px;
+  font-size: 13px;
 }
 
 .markdown-article code {

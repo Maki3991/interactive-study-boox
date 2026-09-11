@@ -10,12 +10,14 @@ import {
   assignStudyParagraphIndices,
   captureStudySelection,
   normalizeStudyText,
+  restoreStudySelection,
   stripStudyMarkupForRender,
   type StudySelectionAnchor,
 } from '../annotations'
 import type {
   ArticleContent,
   GenerationState,
+  StudyAnnotation,
   StudyAnnotationInput,
   StudyAnnotationOperation,
 } from '../types'
@@ -86,10 +88,10 @@ function resolveMarkdownArticlePath(href: string | undefined, currentArticlePath
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error && error.message ? error.message : '标记保存失败，请刷新文章后重试。'
+  return error instanceof Error && error.message ? error.message : '标记操作失败，请刷新文章后重试。'
 }
 
-function getToolbarStyle(anchor: StudySelectionAnchor, width = 270) {
+function getToolbarStyle(anchor: StudySelectionAnchor, width = 360) {
   const maxLeft = Math.max(8, window.innerWidth - width - 8)
   const left = Math.min(Math.max(anchor.rect.right - width, 8), maxLeft)
   const top = Math.max(8, anchor.rect.top - 52)
@@ -98,6 +100,15 @@ function getToolbarStyle(anchor: StudySelectionAnchor, width = 270) {
 }
 
 function getAnnotationInput(annotation: StudySelectionAnchor): StudyAnnotationInput {
+  return {
+    id: annotation.id,
+    flags: annotation.flags,
+    note: annotation.note,
+    segments: annotation.segments,
+  }
+}
+
+function getStoredAnnotationInput(annotation: StudyAnnotation): StudyAnnotationInput {
   return {
     id: annotation.id,
     flags: annotation.flags,
@@ -181,6 +192,10 @@ function ReaderPane({
     if (articleRoot) {
       assignStudyParagraphIndices(articleRoot)
       applyStudyAnnotations(articleRoot, article.annotations)
+
+      if (selectionAnchor && !commentEditorOpen) {
+        restoreStudySelection(articleRoot, selectionAnchor.segments[0])
+      }
     }
   })
 
@@ -296,6 +311,40 @@ function ReaderPane({
     })
   }
 
+  const selectedStoredAnnotation = selectionAnchor
+    ? article.annotations.find((annotation) => annotation.id === selectionAnchor.id) ?? null
+    : null
+
+  const clearAnnotationInteraction = () => {
+    window.getSelection()?.removeAllRanges()
+    setSelectionAnchor(null)
+    setCommentEditorOpen(false)
+    setCommentDraft('')
+    setAnnotationPopover(null)
+    setAnnotationError(null)
+  }
+
+  const persistAnnotation = async (
+    operation: StudyAnnotationOperation,
+    annotation: StudyAnnotationInput,
+  ) => {
+    if (isAnnotationSaving) {
+      return
+    }
+
+    setIsAnnotationSaving(true)
+    setAnnotationError(null)
+
+    try {
+      await onSaveAnnotation(operation, annotation)
+      clearAnnotationInteraction()
+    } catch (error) {
+      setAnnotationError(getErrorMessage(error))
+    } finally {
+      setIsAnnotationSaving(false)
+    }
+  }
+
   const saveSelectionAnnotation = async (
     flags: StudyAnnotationInput['flags'],
     note: string | null,
@@ -321,28 +370,45 @@ function ReaderPane({
           note,
         }
 
-    setIsAnnotationSaving(true)
-    setAnnotationError(null)
-
-    try {
-      await onSaveAnnotation(operation, annotation)
-      window.getSelection()?.removeAllRanges()
-      setSelectionAnchor(null)
-      setCommentEditorOpen(false)
-      setCommentDraft('')
-    } catch (error) {
-      setAnnotationError(getErrorMessage(error))
-    } finally {
-      setIsAnnotationSaving(false)
-    }
+    await persistAnnotation(operation, annotation)
   }
 
-  const handleAddFlag = (flag: StudyAnnotationInput['flags'][number]) => {
-    const flags = selectionAnchor?.flags.includes(flag)
-      ? selectionAnchor.flags
-      : [...(selectionAnchor?.flags ?? []), flag]
+  const removeStudyAnnotation = (annotation: StudyAnnotation) => {
+    void persistAnnotation('remove', getStoredAnnotationInput(annotation))
+  }
 
-    void saveSelectionAnnotation(flags, selectionAnchor?.note ?? null)
+  const removeAnnotationNote = (annotation: StudyAnnotation) => {
+    if (annotation.note === null) {
+      return
+    }
+
+    if (annotation.flags.length === 0) {
+      removeStudyAnnotation(annotation)
+      return
+    }
+
+    void persistAnnotation('update', {
+      ...getStoredAnnotationInput(annotation),
+      note: null,
+    })
+  }
+
+  const handleToggleFlag = (flag: StudyAnnotationInput['flags'][number]) => {
+    if (!selectionAnchor) {
+      return
+    }
+
+    const hasFlag = selectionAnchor.flags.includes(flag)
+    const flags = hasFlag
+      ? selectionAnchor.flags.filter((currentFlag) => currentFlag !== flag)
+      : [...selectionAnchor.flags, flag]
+
+    if (selectedStoredAnnotation && flags.length === 0 && selectionAnchor.note === null) {
+      removeStudyAnnotation(selectedStoredAnnotation)
+      return
+    }
+
+    void saveSelectionAnnotation(flags, selectionAnchor.note)
   }
 
   const handleOpenCommentEditor = () => {
@@ -383,6 +449,7 @@ function ReaderPane({
     const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 180))
     setSelectionAnchor(null)
     setCommentEditorOpen(false)
+    setAnnotationError(null)
     setAnnotationPopover({ id: annotationId, top: Math.max(8, top), left })
   }
 
@@ -494,22 +561,24 @@ function ReaderPane({
           className="study-annotation-toolbar"
           style={toolbarStyle}
           role="toolbar"
-          aria-label="为选中文字添加标记"
+          aria-label="为选中文字添加或删除标记"
           onPointerDown={(event) => event.stopPropagation()}
         >
           <button
             type="button"
             disabled={isAnnotationSaving}
-            onClick={() => handleAddFlag('unknown')}
+            aria-pressed={selectionAnchor.flags.includes('unknown')}
+            onClick={() => handleToggleFlag('unknown')}
           >
-            波浪线
+            {selectionAnchor.flags.includes('unknown') ? '取消波浪线' : '波浪线'}
           </button>
           <button
             type="button"
             disabled={isAnnotationSaving}
-            onClick={() => handleAddFlag('favorite')}
+            aria-pressed={selectionAnchor.flags.includes('favorite')}
+            onClick={() => handleToggleFlag('favorite')}
           >
-            高光
+            {selectionAnchor.flags.includes('favorite') ? '取消高光' : '高光'}
           </button>
           <button
             type="button"
@@ -518,6 +587,15 @@ function ReaderPane({
           >
             批注
           </button>
+          {selectedStoredAnnotation && (
+            <button
+              type="button"
+              disabled={isAnnotationSaving}
+              onClick={() => removeStudyAnnotation(selectedStoredAnnotation)}
+            >
+              删除标记
+            </button>
+          )}
         </div>
       )}
 
@@ -552,6 +630,16 @@ function ReaderPane({
             >
               取消
             </button>
+            {selectedStoredAnnotation !== null && selectedStoredAnnotation.note !== null && (
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={isAnnotationSaving}
+                onClick={() => removeAnnotationNote(selectedStoredAnnotation)}
+              >
+                删除批注
+              </button>
+            )}
             <button
               className="primary-button"
               type="button"
@@ -584,12 +672,26 @@ function ReaderPane({
             <button
               type="button"
               aria-label="关闭批注"
-              onClick={() => setAnnotationPopover(null)}
+              onClick={() => {
+                setAnnotationPopover(null)
+                setAnnotationError(null)
+              }}
             >
               ×
             </button>
           </div>
           <p>{activePopoverAnnotation.note}</p>
+          {annotationError && <p className="study-annotation-error" role="alert">{annotationError}</p>}
+          <div className="study-annotation-popover-actions">
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={isAnnotationSaving}
+              onClick={() => removeAnnotationNote(activePopoverAnnotation)}
+            >
+              删除批注
+            </button>
+          </div>
         </div>
       )}
 

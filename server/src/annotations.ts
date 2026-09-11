@@ -398,39 +398,87 @@ function buildVisibleTextMap(rawText: string): VisibleTextMap {
   return { text: textCharacters.join(''), rawStarts, rawEnds }
 }
 
+function findUniqueTextOccurrence(text: string, query: string) {
+  const firstIndex = text.indexOf(query)
+
+  if (firstIndex === -1 || text.indexOf(query, firstIndex + 1) !== -1) {
+    return null
+  }
+
+  return firstIndex
+}
+
 function findParagraphForSegment(markdown: string, segment: StudyAnnotationSegment) {
   const mainContent = getMainArticleContent(markdown)
   const blocks = findMarkdownBlocks(mainContent)
   const normalizedParagraphText = normalizeText(segment.paragraphText)
-  const matchingBlocks = blocks.filter(
+  const exactParagraphMatches = blocks.filter(
     (block) => buildVisibleTextMap(block.text).text === normalizedParagraphText,
   )
-  const indexedBlock = matchingBlocks.find((block) => block.paragraphIndex === segment.paragraphIndex)
-  const block = indexedBlock ?? (matchingBlocks.length === 1 ? matchingBlocks[0] : undefined)
+  const quote = normalizeText(segment.quote)
+  let block = exactParagraphMatches.find(
+    (candidate) => candidate.paragraphIndex === segment.paragraphIndex,
+  )
+  let quoteStart = segment.start
+
+  if (!block && exactParagraphMatches.length === 1) {
+    block = exactParagraphMatches[0]
+  }
+
+  // The client stores rendered paragraph text, while this file still contains
+  // Markdown syntax such as **bold**. Prefer the original paragraph ordinal
+  // and the selected quote when the full paragraph text cannot match exactly.
+  if (!block) {
+    const indexedCandidate = blocks.find(
+      (candidate) => candidate.paragraphIndex === segment.paragraphIndex,
+    )
+    const indexedQuoteStart = indexedCandidate
+      ? findUniqueTextOccurrence(buildVisibleTextMap(indexedCandidate.text).text, quote)
+      : null
+
+    if (indexedCandidate && indexedQuoteStart !== null) {
+      block = indexedCandidate
+      quoteStart = indexedQuoteStart
+    }
+  }
+
+  if (!block) {
+    const quoteMatches = blocks.flatMap((candidate) => {
+      const candidateQuoteStart = findUniqueTextOccurrence(buildVisibleTextMap(candidate.text).text, quote)
+
+      return candidateQuoteStart === null
+        ? []
+        : [{ block: candidate, quoteStart: candidateQuoteStart }]
+    })
+
+    if (quoteMatches.length === 1) {
+      block = quoteMatches[0].block
+      quoteStart = quoteMatches[0].quoteStart
+    }
+  }
 
   if (!block) {
     throw new StudyAnnotationError(
       409,
       'ANNOTATION_ANCHOR_NOT_FOUND',
-      matchingBlocks.length > 1
+      exactParagraphMatches.length > 1
         ? '选中的文字在文章中出现了多次，暂时无法安全保存，请重新选择。'
         : '选中的文字已经无法在当前文章中定位，请刷新文章后重试。',
     )
   }
 
   const visibleMap = buildVisibleTextMap(block.text)
-  const quote = normalizeText(segment.quote)
 
   if (
-    visibleMap.text.slice(segment.start, segment.end) !== quote ||
-    segment.start < 0 ||
-    segment.end > visibleMap.text.length
+    quoteStart < 0 ||
+    quoteStart + quote.length > visibleMap.text.length ||
+    visibleMap.text.slice(quoteStart, quoteStart + quote.length) !== quote
   ) {
     throw new StudyAnnotationError(409, 'ANNOTATION_ANCHOR_NOT_FOUND', '选中的文字已经发生变化，请重新选择。')
   }
 
-  const rawStart = visibleMap.rawStarts[segment.start]
-  const rawEnd = visibleMap.rawEnds[segment.end - 1]
+  const rawStart = visibleMap.rawStarts[quoteStart]
+  const rawEnd = visibleMap.rawEnds[quoteStart + quote.length - 1]
 
   if (rawStart === undefined || rawEnd === undefined || rawStart >= rawEnd) {
     throw new StudyAnnotationError(409, 'ANNOTATION_ANCHOR_NOT_FOUND', '选中的文字无法定位，请重新选择。')
