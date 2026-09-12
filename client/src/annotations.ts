@@ -256,9 +256,62 @@ function hasForbiddenSelectionContent(paragraph: HTMLElement, range: Range) {
 
   return Array.from(
     paragraph.querySelectorAll(
-      'a, code, pre, button, input, textarea, strong, em, del, img, sub, sup, br',
+      'a, code, pre, button, input, textarea, em, del, img, sub, sup, br',
     ),
   ).some((element) => range.intersectsNode(element))
+}
+
+function hasForbiddenArticleSelectionContent(articleRoot: HTMLElement, range: Range) {
+  return Array.from(
+    articleRoot.querySelectorAll('h1, h2, h3, h4, h5, h6, li, blockquote, table, hr'),
+  ).some((element) => range.intersectsNode(element))
+}
+
+function getSelectionSegment(
+  paragraph: HTMLElement,
+  range: Range,
+  isFirstParagraph: boolean,
+  isLastParagraph: boolean,
+) {
+  const paragraphMap = buildNormalizedTextMap(paragraph)
+
+  if (
+    (isFirstParagraph && !paragraph.contains(range.startContainer)) ||
+    (isLastParagraph && !paragraph.contains(range.endContainer))
+  ) {
+    return null
+  }
+
+  const lastUnit = paragraphMap.units[paragraphMap.units.length - 1]
+  const rawStart = isFirstParagraph
+    ? getRawTextOffset(paragraph, range.startContainer, range.startOffset)
+    : 0
+  const rawEnd = isLastParagraph
+    ? getRawTextOffset(paragraph, range.endContainer, range.endOffset)
+    : lastUnit?.rawEnd ?? 0
+  const firstUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawEnd > rawStart)
+  const endUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawStart >= rawEnd)
+  const start = firstUnitIndex === -1 ? paragraphMap.text.length : firstUnitIndex
+  const end = endUnitIndex === -1 ? paragraphMap.text.length : endUnitIndex
+  const quote = paragraphMap.text.slice(start, end)
+  const paragraphIndex = Number(paragraph.dataset.studyParagraphIndex)
+
+  if (
+    !Number.isInteger(paragraphIndex) ||
+    paragraphIndex < 0 ||
+    quote === '' ||
+    start >= end
+  ) {
+    return null
+  }
+
+  return {
+    paragraphIndex,
+    paragraphText: paragraphMap.text,
+    start,
+    end,
+    quote,
+  }
 }
 
 export function captureStudySelection(articleRoot: HTMLElement): StudySelectionAnchor | null {
@@ -274,52 +327,60 @@ export function captureStudySelection(articleRoot: HTMLElement): StudySelectionA
 
   if (
     !startParagraph ||
-    startParagraph !== endParagraph ||
+    !endParagraph ||
     !articleRoot.contains(range.startContainer) ||
     !articleRoot.contains(range.endContainer) ||
-    hasForbiddenSelectionContent(startParagraph, range)
+    !articleRoot.contains(startParagraph) ||
+    !articleRoot.contains(endParagraph) ||
+    hasForbiddenArticleSelectionContent(articleRoot, range)
   ) {
     return null
   }
 
-  const paragraphMap = buildNormalizedTextMap(startParagraph)
-  const rawStart = getRawTextOffset(startParagraph, range.startContainer, range.startOffset)
-  const rawEnd = getRawTextOffset(startParagraph, range.endContainer, range.endOffset)
-  const firstUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawEnd > rawStart)
-  const endUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawStart >= rawEnd)
-  const start = firstUnitIndex === -1 ? paragraphMap.text.length : firstUnitIndex
-  const end = endUnitIndex === -1 ? paragraphMap.text.length : endUnitIndex
-  const quote = normalizeText(selection.toString())
+  const paragraphs = Array.from(
+    articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
+  )
+  const startParagraphIndex = paragraphs.indexOf(startParagraph)
+  const endParagraphIndex = paragraphs.indexOf(endParagraph)
 
   if (
-    quote === '' ||
-    start >= end ||
-    paragraphMap.text.slice(start, end) !== quote ||
-    !articleRoot.contains(startParagraph)
+    startParagraphIndex === -1 ||
+    endParagraphIndex === -1 ||
+    startParagraphIndex > endParagraphIndex
   ) {
+    return null
+  }
+
+  const selectedParagraphs = paragraphs.slice(startParagraphIndex, endParagraphIndex + 1)
+
+  if (selectedParagraphs.some((paragraph) => hasForbiddenSelectionContent(paragraph, range))) {
+    return null
+  }
+
+  const segments = selectedParagraphs
+    .map((paragraph, index) =>
+      getSelectionSegment(
+        paragraph,
+        range,
+        index === 0,
+        index === selectedParagraphs.length - 1,
+      ),
+    )
+    .filter((segment): segment is NonNullable<typeof segment> => segment !== null)
+  const quote = normalizeText(selection.toString())
+  const expectedQuote = normalizeText(segments.map((segment) => segment.quote).join(' '))
+
+  if (quote === '' || segments.length === 0 || quote !== expectedQuote) {
     return null
   }
 
   const rect = range.getBoundingClientRect()
-  const paragraphIndex = Number(startParagraph.dataset.studyParagraphIndex)
-
-  if (!Number.isInteger(paragraphIndex) || paragraphIndex < 0) {
-    return null
-  }
 
   return {
     id: createAnnotationId(),
     flags: [],
     note: null,
-    segments: [
-      {
-        paragraphIndex,
-        paragraphText: paragraphMap.text,
-        start,
-        end,
-        quote,
-      },
-    ],
+    segments,
     rect: {
       top: rect.top,
       right: rect.right,
@@ -350,45 +411,58 @@ function getParagraphForSegment(
 
 export function restoreStudySelection(
   articleRoot: HTMLElement,
-  segment: StudyAnnotation['segments'][number],
+  segments: StudyAnnotation['segments'],
 ) {
   const selection = window.getSelection()
 
-  if (!selection) {
+  if (!selection || segments.length === 0) {
     return false
   }
 
   const paragraphs = Array.from(
     articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
   )
-  const paragraph = getParagraphForSegment(paragraphs, segment)
+  const resolvedSegments = segments.map((segment) => {
+    const paragraph = getParagraphForSegment(paragraphs, segment)
 
-  if (!paragraph) {
+    if (!paragraph) {
+      return null
+    }
+
+    const textMap = buildNormalizedTextMap(paragraph)
+
+    if (
+      textMap.text !== segment.paragraphText ||
+      segment.start < 0 ||
+      segment.end > textMap.text.length ||
+      textMap.text.slice(segment.start, segment.end) !== segment.quote
+    ) {
+      return null
+    }
+
+    const startUnit = textMap.units[segment.start]
+    const endUnit = textMap.units[segment.end - 1]
+
+    return startUnit && endUnit ? { paragraph, startUnit, endUnit } : null
+  })
+
+  if (resolvedSegments.some((resolvedSegment) => resolvedSegment === null)) {
     return false
   }
 
-  const textMap = buildNormalizedTextMap(paragraph)
+  const firstResolvedSegment = resolvedSegments[0]
+  const lastResolvedSegment = resolvedSegments[resolvedSegments.length - 1]
 
-  if (
-    textMap.text !== segment.paragraphText ||
-    segment.start < 0 ||
-    segment.end > textMap.text.length ||
-    textMap.text.slice(segment.start, segment.end) !== segment.quote
-  ) {
+  if (!firstResolvedSegment || !lastResolvedSegment) {
     return false
   }
 
-  const startUnit = textMap.units[segment.start]
-  const endUnit = textMap.units[segment.end - 1]
-
-  if (!startUnit || !endUnit) {
-    return false
-  }
+  const expectedQuote = normalizeText(segments.map((segment) => segment.quote).join(' '))
 
   if (
     selection.rangeCount > 0 &&
     !selection.isCollapsed &&
-    normalizeText(selection.toString()) === segment.quote &&
+    normalizeText(selection.toString()) === expectedQuote &&
     articleRoot.contains(selection.anchorNode) &&
     articleRoot.contains(selection.focusNode)
   ) {
@@ -396,8 +470,16 @@ export function restoreStudySelection(
   }
 
   const range = document.createRange()
-  range.setStart(startUnit.node, startUnit.rawStart - getRawTextOffset(paragraph, startUnit.node, 0))
-  range.setEnd(endUnit.node, endUnit.rawEnd - getRawTextOffset(paragraph, endUnit.node, 0))
+  range.setStart(
+    firstResolvedSegment.startUnit.node,
+    firstResolvedSegment.startUnit.rawStart -
+      getRawTextOffset(firstResolvedSegment.paragraph, firstResolvedSegment.startUnit.node, 0),
+  )
+  range.setEnd(
+    lastResolvedSegment.endUnit.node,
+    lastResolvedSegment.endUnit.rawEnd -
+      getRawTextOffset(lastResolvedSegment.paragraph, lastResolvedSegment.endUnit.node, 0),
+  )
   selection.removeAllRanges()
   selection.addRange(range)
   return true
@@ -488,6 +570,12 @@ function wrapAnnotationRange(
   const wrapper = document.createElement('span')
   wrapper.className = getStudyAnnotationClasses(annotation)
   wrapper.dataset.studyId = annotation.id
+  const segmentIndex = annotation.segments.indexOf(segment)
+
+  if (segmentIndex >= 0) {
+    wrapper.dataset.studySegmentIndex = String(segmentIndex)
+  }
+
   const fragment = range.extractContents()
   wrapper.append(fragment)
 

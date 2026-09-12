@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type {
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
@@ -117,6 +117,15 @@ function getStoredAnnotationInput(annotation: StudyAnnotation): StudyAnnotationI
   }
 }
 
+function getStudyMarkQuote(wrapper: HTMLElement) {
+  return normalizeStudyText(
+    Array.from(wrapper.childNodes)
+      .filter((node) => !(node instanceof HTMLElement && node.matches('[data-study-comment-button]')))
+      .map((node) => node.textContent ?? '')
+      .join(''),
+  )
+}
+
 function ReaderPane({
   article,
   projectName,
@@ -194,7 +203,7 @@ function ReaderPane({
       applyStudyAnnotations(articleRoot, article.annotations)
 
       if (selectionAnchor && !commentEditorOpen) {
-        restoreStudySelection(articleRoot, selectionAnchor.segments[0])
+        restoreStudySelection(articleRoot, selectionAnchor.segments)
       }
     }
   })
@@ -288,15 +297,19 @@ function ReaderPane({
         return
       }
 
-      const segment = capturedSelection.segments[0]
       const existingAnnotation = article.annotations.find((annotation) =>
-        annotation.segments.some(
-          (annotationSegment) =>
-            annotationSegment.paragraphIndex === segment.paragraphIndex &&
-            annotationSegment.start === segment.start &&
-            annotationSegment.end === segment.end &&
-            annotationSegment.paragraphText === segment.paragraphText,
-        ),
+        annotation.segments.length === capturedSelection.segments.length &&
+        annotation.segments.every((annotationSegment, index) => {
+          const capturedSegment = capturedSelection.segments[index]
+
+          return (
+            capturedSegment !== undefined &&
+            annotationSegment.paragraphIndex === capturedSegment.paragraphIndex &&
+            annotationSegment.start === capturedSegment.start &&
+            annotationSegment.end === capturedSegment.end &&
+            annotationSegment.paragraphText === capturedSegment.paragraphText
+          )
+        }),
       )
 
       setAnnotationError(null)
@@ -315,14 +328,34 @@ function ReaderPane({
     ? article.annotations.find((annotation) => annotation.id === selectionAnchor.id) ?? null
     : null
 
-  const clearAnnotationInteraction = () => {
+  const clearAnnotationInteraction = useCallback(() => {
     window.getSelection()?.removeAllRanges()
     setSelectionAnchor(null)
     setCommentEditorOpen(false)
     setCommentDraft('')
     setAnnotationPopover(null)
     setAnnotationError(null)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!selectionAnchor && !commentEditorOpen && !annotationPopover) {
+      return
+    }
+
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target
+
+      if (target instanceof Element && target.closest('[data-study-annotation-ui]') !== null) {
+        return
+      }
+
+      clearAnnotationInteraction()
+    }
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown)
+
+    return () => document.removeEventListener('pointerdown', handleDocumentPointerDown)
+  }, [annotationPopover, clearAnnotationInteraction, commentEditorOpen, selectionAnchor])
 
   const persistAnnotation = async (
     operation: StudyAnnotationOperation,
@@ -430,27 +463,78 @@ function ReaderPane({
 
     const commentButton = target.closest<HTMLElement>('[data-study-comment-button]')
 
-    if (!commentButton) {
+    if (commentButton) {
+      event.preventDefault()
+      event.stopPropagation()
+      const annotationId = commentButton.dataset.studyCommentButton
+
+      if (!annotationId) {
+        return
+      }
+
+      const rect = commentButton.getBoundingClientRect()
+      const width = 280
+      const maxLeft = Math.max(8, window.innerWidth - width - 8)
+      const left = Math.min(Math.max(rect.left, 8), maxLeft)
+      const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 180))
+      setSelectionAnchor(null)
+      setCommentEditorOpen(false)
+      setAnnotationError(null)
+      setAnnotationPopover({ id: annotationId, top: Math.max(8, top), left })
+      return
+    }
+
+    const annotationWrapper = target.closest<HTMLElement>('[data-study-id].study-mark')
+
+    if (!annotationWrapper) {
+      return
+    }
+
+    const annotationId = annotationWrapper.dataset.studyId
+    const annotation = annotationId
+      ? article.annotations.find((currentAnnotation) => currentAnnotation.id === annotationId)
+      : null
+
+    if (!annotation) {
+      return
+    }
+
+    const paragraph = annotationWrapper.closest<HTMLElement>('p[data-study-paragraph-index]')
+    const paragraphIndex = paragraph ? Number(paragraph.dataset.studyParagraphIndex) : NaN
+    const segmentIndex = Number(annotationWrapper.dataset.studySegmentIndex)
+    const indexedSegment = Number.isInteger(segmentIndex) ? annotation.segments[segmentIndex] : null
+    const segment =
+      indexedSegment ??
+      annotation.segments.find(
+        (currentSegment) =>
+          currentSegment.paragraphIndex === paragraphIndex &&
+          normalizeStudyText(currentSegment.quote) === getStudyMarkQuote(annotationWrapper),
+      )
+
+    if (!segment) {
       return
     }
 
     event.preventDefault()
     event.stopPropagation()
-    const annotationId = commentButton.dataset.studyCommentButton
-
-    if (!annotationId) {
-      return
-    }
-
-    const rect = commentButton.getBoundingClientRect()
-    const width = 280
-    const maxLeft = Math.max(8, window.innerWidth - width - 8)
-    const left = Math.min(Math.max(rect.left, 8), maxLeft)
-    const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 180))
-    setSelectionAnchor(null)
-    setCommentEditorOpen(false)
+    const rect = annotationWrapper.getBoundingClientRect()
+    window.getSelection()?.removeAllRanges()
     setAnnotationError(null)
-    setAnnotationPopover({ id: annotationId, top: Math.max(8, top), left })
+    setAnnotationPopover(null)
+    setCommentEditorOpen(false)
+    setSelectionAnchor({
+      id: annotation.id,
+      flags: annotation.flags,
+      note: annotation.note,
+      // 点击任一片段都以整条跨段 annotation 作为编辑对象。
+      segments: annotation.segments,
+      rect: {
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        left: rect.left,
+      },
+    })
   }
 
   const activePopoverAnnotation = annotationPopover
@@ -559,6 +643,7 @@ function ReaderPane({
       {selectionAnchor && !commentEditorOpen && (
         <div
           className="study-annotation-toolbar"
+          data-study-annotation-ui
           style={toolbarStyle}
           role="toolbar"
           aria-label="为选中文字添加或删除标记"
@@ -587,21 +672,13 @@ function ReaderPane({
           >
             批注
           </button>
-          {selectedStoredAnnotation && (
-            <button
-              type="button"
-              disabled={isAnnotationSaving}
-              onClick={() => removeStudyAnnotation(selectedStoredAnnotation)}
-            >
-              删除标记
-            </button>
-          )}
         </div>
       )}
 
       {selectionAnchor && commentEditorOpen && (
         <div
           className="study-annotation-comment-editor"
+          data-study-annotation-ui
           style={commentEditorStyle}
           role="dialog"
           aria-label="为选中文字添加批注"
@@ -663,6 +740,7 @@ function ReaderPane({
       {activePopoverAnnotation && annotationPopover && (
         <div
           className="study-annotation-popover"
+          data-study-annotation-ui
           style={{ top: annotationPopover.top, left: annotationPopover.left }}
           role="dialog"
           aria-label="查看批注"
@@ -681,17 +759,6 @@ function ReaderPane({
             </button>
           </div>
           <p>{activePopoverAnnotation.note}</p>
-          {annotationError && <p className="study-annotation-error" role="alert">{annotationError}</p>}
-          <div className="study-annotation-popover-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={isAnnotationSaving}
-              onClick={() => removeAnnotationNote(activePopoverAnnotation)}
-            >
-              删除批注
-            </button>
-          </div>
         </div>
       )}
 

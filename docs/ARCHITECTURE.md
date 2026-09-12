@@ -303,8 +303,8 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 ## 8. 文章标记与批注链路（第一阶段）
 
 ```text
-用户选中普通段落中的文字
-  → ReaderPane.captureStudySelection 计算段落文本、规范化偏移和悬浮框位置
+用户选中一个或多个连续普通段落中的文字
+  → ReaderPane.captureStudySelection 将选区拆成多个段落片段，计算规范化偏移和悬浮框位置
   → POST /api/annotations 携带 articleHash、操作类型和 annotation
   → 服务端在文章写锁内校验版本并把自有 span + 隐藏 JSON 元数据原子写回当前 .md
   → GET /api/article 返回 markdown、markdownHash 和 annotations
@@ -313,4 +313,4 @@ P1 已具备具有持久化磁盘的 Linux VPS、Node.js、Git 和服务端密�
 
 标记写入与反馈写入共用当前文章的串行写锁，并使用文章 SHA-256 版本校验；如果电脑或 Obsidian 已经修改了文件，网站会拒绝旧选择，要求刷新后重新选择。AI 生成上下文会去掉存储用 HTML 标签，同时单独提供波浪线、高光和批注的结构化列表。
 
-第一阶段的选择范围是同一普通段落，禁止代码、链接、列表、复杂内联格式和重叠标记。`segments` 数组是跨段扩展的预留接口，不代表当前 UI 已经支持跨段操作。
+当前选择范围支持一个或多个连续普通段落，首末段可以部分选择，中间段落按整段选择；仍禁止代码、链接、列表、复杂内联格式和重叠标记。`segments` 数组保存每个段落片段，服务端按片段逐段写入和恢复。

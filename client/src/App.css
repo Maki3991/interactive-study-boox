@@ -787,6 +787,10 @@
   align-items: stretch;
 }
 
+.study-mark {
+  cursor: pointer;
+}
+
 .study-annotation-toolbar button {
   min-width: 0;
   flex: 1;
@@ -923,20 +927,6 @@
   white-space: pre-wrap;
   font-size: 14px;
   line-height: 1.6;
-}
-
-.study-annotation-popover-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.study-annotation-popover-actions .secondary-button {
-  min-height: 36px;
-  margin-top: 0;
-  padding: 7px 12px;
-  font-size: 13px;
 }
 
 .markdown-article code {

@@ -938,7 +938,7 @@ P1 的同步状态、ahead/behind 数量和 Git commit 元数据由 VPS 工作�
 -->
 ```
 
-`flags` 当前允许 `unknown`（波浪线）和 `favorite`（高光）；`note` 可以为空。一个 annotation 可以包含多个 `segments`，但第一阶段 UI 只创建一个段落片段；选择定位暂不覆盖代码、链接、列表或复杂内联格式。`paragraphIndex` 是从 0 开始的普通 Markdown 段落顺序编号，不是 Markdown 字符偏移；网页会在渲染完成后按相同规则编号。
+`flags` 当前允许 `unknown`（波浪线）和 `favorite`（高光）；`note` 可以为空。一个 annotation 可以包含多个 `segments`，当前 UI 支持一个或多个连续普通段落的选择；首末段可以部分选择，中间段落按整段保存。选择定位暂不覆盖代码、链接、列表或复杂内联格式。`paragraphIndex` 是从 0 开始的普通 Markdown 段落顺序编号，不是 Markdown 字符偏移；网页会在渲染完成后按相同规则编号。
 
 ### 11.2 `GET /api/article`
 

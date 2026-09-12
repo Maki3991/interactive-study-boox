@@ -345,6 +345,28 @@ function findMarkdownBlocks(markdown: string): MarkdownBlock[] {
   return blocks
 }
 
+function getMarkdownStrongDelimiterPositions(rawText: string) {
+  const delimiterPositions = new Set<number>()
+  const strongPattern = /(\*\*|__)(?=\S)([\s\S]*?\S)\1/g
+
+  for (const match of rawText.matchAll(strongPattern)) {
+    const start = match.index
+
+    if (start === undefined) {
+      continue
+    }
+
+    const closingStart = start + match[0].length - 2
+
+    delimiterPositions.add(start)
+    delimiterPositions.add(start + 1)
+    delimiterPositions.add(closingStart)
+    delimiterPositions.add(closingStart + 1)
+  }
+
+  return delimiterPositions
+}
+
 interface VisibleTextMap {
   text: string
   rawStarts: number[]
@@ -355,9 +377,15 @@ function buildVisibleTextMap(rawText: string): VisibleTextMap {
   const textCharacters: string[] = []
   const rawStarts: number[] = []
   const rawEnds: number[] = []
+  const strongDelimiterPositions = getMarkdownStrongDelimiterPositions(rawText)
   let cursor = 0
 
   while (cursor < rawText.length) {
+    if (strongDelimiterPositions.has(cursor)) {
+      cursor += 1
+      continue
+    }
+
     const tagMatch = rawText.slice(cursor).match(/^<\/?span\b[^>]*>/i)
 
     if (tagMatch) {
