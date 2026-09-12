@@ -8,6 +8,16 @@ import { buildLessonRoutePrompt, buildNextLessonPrompt } from './generationPromp
 import { GitSyncError, getSyncStatus, pullSync, pushSync } from './gitSync.js'
 import { buildLearningContext, LearningContextError, readSourceFiles } from './learningContext.js'
 import {
+  applyStudyAnnotationOperation,
+  parseStudyAnnotations,
+  stripAnnotationMetadata,
+  StudyAnnotationError,
+  validateStudyAnnotationInput,
+  type StudyAnnotation,
+  type StudyAnnotationInput,
+  type StudyAnnotationOperation,
+} from './annotations.js'
+import {
   LessonRouteDecisionError,
   parseLessonRouteDecision,
   validateLessonRouteSources,
@@ -46,6 +56,8 @@ interface ArticleContent {
   relativePath: string
   kind: ArticleKind
   markdown: string
+  markdownHash: string
+  annotations: StudyAnnotation[]
   latestFeedback: FeedbackSnapshot | null
   nextArticlePath: string | null
   nextArticleExists: boolean
@@ -81,6 +93,25 @@ type ArticlePathResolution =
 
 type FeedbackValidation =
   | { ok: true; request: ValidatedFeedbackRequest }
+  | { ok: false; status: number; message: string }
+
+interface SaveAnnotationRequest {
+  articlePath: string
+  articleHash: string
+  operation: StudyAnnotationOperation
+  annotation: StudyAnnotationInput
+}
+
+interface ValidatedAnnotationRequest {
+  relativePath: string
+  absolutePath: string
+  articleHash: string
+  operation: StudyAnnotationOperation
+  annotation: StudyAnnotationInput
+}
+
+type AnnotationValidation =
+  | { ok: true; request: ValidatedAnnotationRequest }
   | { ok: false; status: number; message: string }
 
 class ArticleFileError extends Error {
@@ -166,7 +197,9 @@ function getLatestFeedback(markdown: string): FeedbackSnapshot | null {
     return null
   }
 
-  const feedback = markdown.slice(latestMatch.index + latestMatch[0].length).trim()
+  const feedback = stripAnnotationMetadata(
+    markdown.slice(latestMatch.index + latestMatch[0].length),
+  ).trim()
 
   if (feedback === '') {
     return null
@@ -250,6 +283,47 @@ function validateFeedbackRequest(body: Partial<SaveFeedbackRequest> | undefined)
   }
 }
 
+function validateAnnotationRequest(body: Partial<SaveAnnotationRequest> | undefined): AnnotationValidation {
+  const resolution = resolveArticlePath(body?.articlePath)
+
+  if (!resolution.ok) {
+    return resolution
+  }
+
+  const { relativePath, absolutePath } = resolution.articlePath
+
+  if (getArticleKind(path.basename(absolutePath), relativePath) !== 'lesson') {
+    return { ok: false, status: 403, message: '批注只能保存到编号学习文章中。' }
+  }
+
+  if (typeof body?.articleHash !== 'string' || !/^[a-f0-9]{64}$/i.test(body.articleHash)) {
+    return { ok: false, status: 400, message: '文章版本标识无效，请刷新文章后重试。' }
+  }
+
+  if (body.operation !== 'create' && body.operation !== 'update' && body.operation !== 'remove') {
+    return { ok: false, status: 400, message: '标记操作无效。' }
+  }
+
+  try {
+    return {
+      ok: true,
+      request: {
+        relativePath,
+        absolutePath,
+        articleHash: body.articleHash,
+        operation: body.operation,
+        annotation: validateStudyAnnotationInput(body.annotation),
+      },
+    }
+  } catch (error) {
+    if (error instanceof StudyAnnotationError) {
+      return { ok: false, status: error.status, message: error.message }
+    }
+
+    return { ok: false, status: 400, message: '标记数据无效。' }
+  }
+}
+
 async function saveFeedbackToFile(request: ValidatedFeedbackRequest) {
   const fileInfo = await stat(request.absolutePath)
 
@@ -262,15 +336,48 @@ async function saveFeedbackToFile(request: ValidatedFeedbackRequest) {
     const feedbackMarker = getFeedbackMarker(request.submissionId)
 
     if (markdown.includes(feedbackMarker)) {
-      return true
+      return { alreadySaved: true, markdown }
     }
+
+    const updatedMarkdown = `${markdown}${formatFeedbackForAppend(markdown, request.feedback, request.submissionId)}`
 
     await writeFileAtomically(
       request.absolutePath,
-      `${markdown}${formatFeedbackForAppend(markdown, request.feedback, request.submissionId)}`,
+      updatedMarkdown,
       `feedback-${request.submissionId}`,
     )
-    return false
+
+    return { alreadySaved: false, markdown: updatedMarkdown }
+  })
+}
+
+async function saveAnnotationToFile(request: ValidatedAnnotationRequest) {
+  const fileInfo = await stat(request.absolutePath)
+
+  if (!fileInfo.isFile()) {
+    throw new ArticleFileError(404, '找不到这篇 Markdown 文章。')
+  }
+
+  return withFeedbackWriteLock(request.absolutePath, async () => {
+    const markdown = await readFile(request.absolutePath, 'utf8')
+
+    if (hashText(markdown) !== request.articleHash) {
+      throw new ArticleFileError(409, '文章已经发生变化，请刷新后重新选择文字。')
+    }
+
+    const result = applyStudyAnnotationOperation(
+      markdown,
+      request.operation,
+      request.annotation,
+    )
+
+    await writeFileAtomically(
+      request.absolutePath,
+      result.markdown,
+      `annotation-${request.operation}-${request.annotation.id}`,
+    )
+
+    return result
   })
 }
 
@@ -688,6 +795,7 @@ app.get('/api/article', async (request, response) => {
     }
 
     const markdown = await readFile(absolutePath, 'utf8')
+    const annotations = parseStudyAnnotations(markdown)
     const fileName = path.basename(absolutePath)
     const kind = getArticleKind(fileName, relativePath)
     const nextArticlePath = kind === 'lesson' ? getNextArticlePath(relativePath) : null
@@ -697,6 +805,8 @@ app.get('/api/article', async (request, response) => {
       relativePath,
       kind,
       markdown,
+      markdownHash: hashText(markdown),
+      annotations,
       latestFeedback: getLatestFeedback(markdown),
       nextArticlePath,
       nextArticleExists:
@@ -1186,6 +1296,44 @@ app.post('/api/learning/generate-next', async (request, response) => {
   }
 })
 
+app.post('/api/annotations', async (request, response) => {
+  const body = request.body as Partial<SaveAnnotationRequest> | undefined
+  const validation = validateAnnotationRequest(body)
+
+  if (!validation.ok) {
+    response.status(validation.status).json({ message: validation.message })
+    return
+  }
+
+  try {
+    const result = await saveAnnotationToFile(validation.request)
+
+    response.json({
+      annotationSaved: true,
+      articlePath: validation.request.relativePath,
+      markdown: result.markdown,
+      markdownHash: hashText(result.markdown),
+      annotations: result.annotations,
+    })
+  } catch (error) {
+    if (error instanceof StudyAnnotationError || error instanceof ArticleFileError) {
+      response.status(error.status).json({
+        error: { code: error instanceof StudyAnnotationError ? error.code : 'ARTICLE_WRITE_FAILED' },
+        message: error.message,
+      })
+      return
+    }
+
+    if (isMissingFileError(error)) {
+      response.status(404).json({ message: '找不到这篇 Markdown 文章。' })
+      return
+    }
+
+    console.error('Failed to save article annotation:', error)
+    response.status(500).json({ message: '无法保存标记，请稍后重试。' })
+  }
+})
+
 app.post('/api/feedback', async (request, response) => {
   const body = request.body as Partial<SaveFeedbackRequest> | undefined
   const validation = validateFeedbackRequest(body)
@@ -1196,13 +1344,16 @@ app.post('/api/feedback', async (request, response) => {
   }
 
   try {
-    const alreadySaved = await saveFeedbackToFile(validation.request)
+    const result = await saveFeedbackToFile(validation.request)
 
     response.json({
       feedbackSaved: true,
       currentArticlePath: validation.request.relativePath,
       submissionId: validation.request.submissionId,
-      alreadySaved,
+      alreadySaved: result.alreadySaved,
+      markdown: result.markdown,
+      markdownHash: hashText(result.markdown),
+      annotations: parseStudyAnnotations(result.markdown),
     })
   } catch (error) {
     if (error instanceof ArticleFileError) {

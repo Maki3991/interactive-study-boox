@@ -11,6 +11,7 @@ import {
   pullSync,
   pushSync,
   rollbackGeneration,
+  saveAnnotation,
   saveFeedback,
 } from './api'
 import type { AuthStatus } from './api'
@@ -24,6 +25,8 @@ import type {
   GenerationState,
   LibraryEntry,
   ReadingPosition,
+  StudyAnnotationInput,
+  StudyAnnotationOperation,
   SyncStatus,
 } from './types'
 
@@ -364,6 +367,9 @@ function StudyApp({ onLogout }: StudyAppProps) {
         previousArticle
           ? {
               ...previousArticle,
+              markdown: result.markdown,
+              markdownHash: result.markdownHash,
+              annotations: result.annotations,
               latestFeedback: {
                 feedback: feedback.trim(),
                 submissionId,
@@ -395,6 +401,34 @@ function StudyApp({ onLogout }: StudyAppProps) {
       }
     }
   }, [currentArticle, feedback, refreshSyncStatus])
+
+  const handleSaveAnnotation = useCallback(
+    async (operation: StudyAnnotationOperation, annotation: StudyAnnotationInput) => {
+      if (!currentArticle) {
+        return
+      }
+
+      const result = await saveAnnotation({
+        articlePath: currentArticle.relativePath,
+        articleHash: currentArticle.markdownHash,
+        operation,
+        annotation,
+      })
+
+      setCurrentArticle((previousArticle) =>
+        previousArticle && previousArticle.relativePath === result.articlePath
+          ? {
+              ...previousArticle,
+              markdown: result.markdown,
+              markdownHash: result.markdownHash,
+              annotations: result.annotations,
+            }
+          : previousArticle,
+      )
+      void refreshSyncStatus()
+    },
+    [currentArticle, refreshSyncStatus],
+  )
 
   const handleGenerateNextLesson = useCallback(async () => {
     const savedFeedback = currentArticle?.latestFeedback?.feedback.trim() ?? ''
@@ -796,6 +830,7 @@ function StudyApp({ onLogout }: StudyAppProps) {
         onOpenFeedbackDialog={handleFocusFeedback}
         onCloseFeedbackDialog={handleCloseFeedbackDialog}
         onSaveFeedback={handleSaveFeedback}
+        onSaveAnnotation={handleSaveAnnotation}
         onGenerateNextLesson={handleGenerateNextLesson}
         onRollback={handleRollbackGeneration}
         onReadingPositionChange={handleReadingPositionChange}

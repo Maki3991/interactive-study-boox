@@ -723,6 +723,212 @@
   text-align: inherit;
 }
 
+.study-mark {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+.study-unknown {
+  text-decoration-color: #676761;
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+}
+
+.study-favorite {
+  background: #e8e8df;
+}
+
+.study-unknown.study-favorite {
+  text-decoration-color: #4f4f4a;
+}
+
+.study-comment-button {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  margin-left: 3px;
+  place-items: center;
+  border: 1px solid #777772;
+  border-radius: 50%;
+  padding: 0;
+  color: #33332f;
+  background: #f5f5ef;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: super;
+}
+
+.study-comment-button:hover,
+.study-comment-button:focus-visible {
+  color: #ffffff;
+  background: #33332f;
+}
+
+.study-annotation-toolbar,
+.study-annotation-comment-editor,
+.study-annotation-popover {
+  position: fixed;
+  z-index: 10;
+  border: 1px solid #242421;
+  color: #1c1c1a;
+  background: #ffffff;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 14%);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.study-annotation-toolbar {
+  display: flex;
+  width: min(360px, calc(100vw - 16px));
+  min-height: 44px;
+  align-items: stretch;
+}
+
+.study-mark {
+  cursor: pointer;
+}
+
+.study-annotation-toolbar button {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 8px 10px;
+  color: inherit;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.study-annotation-toolbar button:last-child {
+  border-right: 0;
+}
+
+.study-annotation-toolbar button:hover,
+.study-annotation-toolbar button:focus-visible {
+  color: #ffffff;
+  background: #33332f;
+}
+
+.study-annotation-toolbar button:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+.study-annotation-comment-editor {
+  width: min(320px, calc(100vw - 16px));
+  max-height: min(70dvh, 520px);
+  overflow: auto;
+  padding: 16px;
+}
+
+.study-annotation-dialog-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.study-annotation-quote {
+  max-height: 78px;
+  overflow: auto;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-family: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.study-annotation-comment-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  border: 1px solid #9c9c96;
+  border-radius: 2px;
+  padding: 10px;
+  color: var(--ink);
+  background: #fbfbf8;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.study-annotation-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.study-annotation-dialog-actions .primary-button,
+.study-annotation-dialog-actions .secondary-button {
+  min-height: 38px;
+  margin-top: 0;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.study-annotation-error {
+  margin: 9px 0 0;
+  color: #8b2727;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.study-annotation-toast {
+  position: fixed;
+  z-index: 11;
+  right: 16px;
+  bottom: 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  border: 1px solid #8b2727;
+  margin: 0;
+  padding: 9px 12px;
+  background: #fff8f8;
+}
+
+.study-annotation-popover {
+  width: min(280px, calc(100vw - 16px));
+  max-height: 180px;
+  overflow: auto;
+  padding: 12px 14px;
+}
+
+.study-annotation-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.study-annotation-popover-header button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.study-annotation-popover-header button:hover,
+.study-annotation-popover-header button:focus-visible {
+  background: var(--quiet);
+}
+
+.study-annotation-popover p {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .markdown-article code {
   border-radius: 2px;
   padding: 0.1em 0.3em;
@@ -1082,6 +1288,18 @@
     width: 100%;
     min-height: 54px;
     font-size: 17px;
+  }
+
+  .study-annotation-dialog-actions {
+    justify-content: stretch;
+  }
+
+  .study-annotation-dialog-actions .primary-button,
+  .study-annotation-dialog-actions .secondary-button {
+    width: auto;
+    min-height: 42px;
+    flex: 1;
+    font-size: 15px;
   }
 
   .mobile-reader-menu {
