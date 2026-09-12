@@ -318,6 +318,42 @@ function isSelectableParagraphBlock(text: string) {
   )
 }
 
+const markdownListItemPattern = /^([-+*]|\d+[.)])[ \t]+/gm
+const nestedMarkdownListItemPattern = /(?:^|\r?\n)[ \t]+(?:[-+*]|\d+[.)])[ \t]+/
+
+function findFlatListItemBlocks(text: string, blockStart: number, paragraphIndex: number) {
+  const firstLine = text.split(/\r?\n/, 1)[0].trim()
+
+  if (!/^(?:[-+*]|\d+[.)])[ \t]+/.test(firstLine)) {
+    return { blocks: [] as MarkdownBlock[], nextParagraphIndex: paragraphIndex }
+  }
+
+  const matches = [...text.matchAll(markdownListItemPattern)]
+  const blocks: MarkdownBlock[] = []
+  let nextParagraphIndex = paragraphIndex
+
+  for (const [index, match] of matches.entries()) {
+    const markerStart = match.index ?? 0
+    const contentStart = markerStart + match[0].length
+    const contentEnd = matches[index + 1]?.index ?? text.length
+    const itemText = text.slice(contentStart, contentEnd)
+
+    if (nestedMarkdownListItemPattern.test(itemText) || buildVisibleTextMap(itemText).text === '') {
+      continue
+    }
+
+    blocks.push({
+      start: blockStart + contentStart,
+      end: blockStart + contentEnd,
+      text: itemText,
+      paragraphIndex: nextParagraphIndex,
+    })
+    nextParagraphIndex += 1
+  }
+
+  return { blocks, nextParagraphIndex }
+}
+
 function findMarkdownBlocks(markdown: string): MarkdownBlock[] {
   const blocks: MarkdownBlock[] = []
   const blankLinePattern = /\r?\n[ \t]*\r?\n/g
@@ -327,8 +363,12 @@ function findMarkdownBlocks(markdown: string): MarkdownBlock[] {
   for (const match of markdown.matchAll(blankLinePattern)) {
     const matchStart = match.index ?? markdown.length
     const blockText = markdown.slice(cursor, matchStart)
+    const listItemBlocks = findFlatListItemBlocks(blockText, cursor, paragraphIndex)
 
-    if (isSelectableParagraphBlock(blockText)) {
+    if (listItemBlocks.blocks.length > 0) {
+      blocks.push(...listItemBlocks.blocks)
+      paragraphIndex = listItemBlocks.nextParagraphIndex
+    } else if (isSelectableParagraphBlock(blockText)) {
       blocks.push({ start: cursor, end: matchStart, text: blockText, paragraphIndex })
       paragraphIndex += 1
     }
@@ -337,8 +377,11 @@ function findMarkdownBlocks(markdown: string): MarkdownBlock[] {
   }
 
   const finalBlock = markdown.slice(cursor)
+  const listItemBlocks = findFlatListItemBlocks(finalBlock, cursor, paragraphIndex)
 
-  if (isSelectableParagraphBlock(finalBlock)) {
+  if (listItemBlocks.blocks.length > 0) {
+    blocks.push(...listItemBlocks.blocks)
+  } else if (isSelectableParagraphBlock(finalBlock)) {
     blocks.push({ start: cursor, end: markdown.length, text: finalBlock, paragraphIndex })
   }
 

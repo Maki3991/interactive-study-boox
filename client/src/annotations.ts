@@ -79,22 +79,35 @@ export function stripStudyMarkupForRender(markdown: string) {
   return stripStudyMarkTags(markdown.replace(annotationMetadataPattern, ''))
 }
 
+function isSelectableStudyBlock(block: HTMLElement) {
+  if (block.matches('li')) {
+    return (
+      block.parentElement?.closest('li') === null &&
+      block.querySelector('ul, ol') === null &&
+      block.closest('blockquote, td, th') === null
+    )
+  }
+
+  return block.matches('p') && block.closest('li, blockquote, td, th') === null
+}
+
 /**
- * The server stores a paragraph's ordinal among ordinary Markdown blocks.
- * ReactMarkdown's source offsets are not stable here because the saved study
- * mark tags are removed before rendering, so assign the same ordinal after
- * the DOM has been created.
+ * The server stores a block's ordinal among ordinary Markdown blocks and
+ * flat list items. ReactMarkdown's source offsets are not stable here because
+ * the saved study mark tags are removed before rendering, so assign the same
+ * ordinal after the DOM has been created.
  */
 export function assignStudyParagraphIndices(articleRoot: HTMLElement) {
   let paragraphIndex = 0
 
-  for (const paragraph of Array.from(articleRoot.querySelectorAll<HTMLElement>('p'))) {
-    if (paragraph.closest('li, blockquote, td, th') !== null) {
-      paragraph.removeAttribute('data-study-paragraph-index')
-      continue
-    }
+  const candidates = Array.from(articleRoot.querySelectorAll<HTMLElement>('p, li'))
 
-    paragraph.dataset.studyParagraphIndex = String(paragraphIndex)
+  for (const candidate of candidates) {
+    candidate.removeAttribute('data-study-paragraph-index')
+  }
+
+  for (const block of candidates.filter(isSelectableStudyBlock)) {
+    block.dataset.studyParagraphIndex = String(paragraphIndex)
     paragraphIndex += 1
   }
 }
@@ -244,18 +257,14 @@ function getRawTextOffset(root: HTMLElement, container: Node, offset: number) {
   return rawOffset
 }
 
-function getParagraph(node: Node | null) {
+function getStudyBlock(node: Node | null) {
   const element = node instanceof Element ? node : node?.parentElement
-  return element?.closest('p[data-study-paragraph-index]') as HTMLElement | null
+  return element?.closest('[data-study-paragraph-index]') as HTMLElement | null
 }
 
-function hasForbiddenSelectionContent(paragraph: HTMLElement, range: Range) {
-  if (paragraph.closest('li, blockquote, td, th') !== null) {
-    return true
-  }
-
+function hasForbiddenSelectionContent(block: HTMLElement, range: Range) {
   return Array.from(
-    paragraph.querySelectorAll(
+    block.querySelectorAll(
       'a, code, pre, button, input, textarea, em, del, img, sub, sup, br',
     ),
   ).some((element) => range.intersectsNode(element))
@@ -263,38 +272,38 @@ function hasForbiddenSelectionContent(paragraph: HTMLElement, range: Range) {
 
 function hasForbiddenArticleSelectionContent(articleRoot: HTMLElement, range: Range) {
   return Array.from(
-    articleRoot.querySelectorAll('h1, h2, h3, h4, h5, h6, li, blockquote, table, hr'),
+    articleRoot.querySelectorAll('h1, h2, h3, h4, h5, h6, blockquote, table, hr'),
   ).some((element) => range.intersectsNode(element))
 }
 
 function getSelectionSegment(
-  paragraph: HTMLElement,
+  block: HTMLElement,
   range: Range,
   isFirstParagraph: boolean,
   isLastParagraph: boolean,
 ) {
-  const paragraphMap = buildNormalizedTextMap(paragraph)
+  const paragraphMap = buildNormalizedTextMap(block)
 
   if (
-    (isFirstParagraph && !paragraph.contains(range.startContainer)) ||
-    (isLastParagraph && !paragraph.contains(range.endContainer))
+    (isFirstParagraph && !block.contains(range.startContainer)) ||
+    (isLastParagraph && !block.contains(range.endContainer))
   ) {
     return null
   }
 
   const lastUnit = paragraphMap.units[paragraphMap.units.length - 1]
   const rawStart = isFirstParagraph
-    ? getRawTextOffset(paragraph, range.startContainer, range.startOffset)
+    ? getRawTextOffset(block, range.startContainer, range.startOffset)
     : 0
   const rawEnd = isLastParagraph
-    ? getRawTextOffset(paragraph, range.endContainer, range.endOffset)
+    ? getRawTextOffset(block, range.endContainer, range.endOffset)
     : lastUnit?.rawEnd ?? 0
   const firstUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawEnd > rawStart)
   const endUnitIndex = paragraphMap.units.findIndex((unit) => unit.rawStart >= rawEnd)
   const start = firstUnitIndex === -1 ? paragraphMap.text.length : firstUnitIndex
   const end = endUnitIndex === -1 ? paragraphMap.text.length : endUnitIndex
   const quote = paragraphMap.text.slice(start, end)
-  const paragraphIndex = Number(paragraph.dataset.studyParagraphIndex)
+  const paragraphIndex = Number(block.dataset.studyParagraphIndex)
 
   if (
     !Number.isInteger(paragraphIndex) ||
@@ -322,8 +331,8 @@ export function captureStudySelection(articleRoot: HTMLElement): StudySelectionA
   }
 
   const range = selection.getRangeAt(0)
-  const startParagraph = getParagraph(range.startContainer)
-  const endParagraph = getParagraph(range.endContainer)
+  const startParagraph = getStudyBlock(range.startContainer)
+  const endParagraph = getStudyBlock(range.endContainer)
 
   if (
     !startParagraph ||
@@ -338,7 +347,7 @@ export function captureStudySelection(articleRoot: HTMLElement): StudySelectionA
   }
 
   const paragraphs = Array.from(
-    articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
+    articleRoot.querySelectorAll<HTMLElement>('[data-study-paragraph-index]'),
   )
   const startParagraphIndex = paragraphs.indexOf(startParagraph)
   const endParagraphIndex = paragraphs.indexOf(endParagraph)
@@ -420,7 +429,7 @@ export function restoreStudySelection(
   }
 
   const paragraphs = Array.from(
-    articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
+    articleRoot.querySelectorAll<HTMLElement>('[data-study-paragraph-index]'),
   )
   const resolvedSegments = segments.map((segment) => {
     const paragraph = getParagraphForSegment(paragraphs, segment)
@@ -612,7 +621,7 @@ export function applyStudyAnnotations(
   }
 
   const paragraphs = Array.from(
-    articleRoot.querySelectorAll<HTMLElement>('p[data-study-paragraph-index]'),
+    articleRoot.querySelectorAll<HTMLElement>('[data-study-paragraph-index]'),
   )
 
   for (const annotation of annotations) {
